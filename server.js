@@ -7,6 +7,7 @@ require('dotenv').config({ path: './config.env' });
 const fs = require('fs');
 
 const app = express();
+app.set('trust proxy', 1); // Render ve benzeri platformlar için gerekli
 const PORT = process.env.PORT || 3020;
 
 // Middleware
