@@ -1,0 +1,3 @@
+config.env
+.env 
+GEMINI_API_KEY=senin-gercek-api-keyin 
