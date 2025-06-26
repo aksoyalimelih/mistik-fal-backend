@@ -19,7 +19,8 @@ app.use(cors({
     'http://localhost:5175',
     'http://localhost:5176',
     'http://localhost:5177',
-    'https://couva.de' // Hostinger domaini eklendi
+    'https://couva.de',
+    'https://www.couva.de' // www'li domain de eklendi
   ],
   credentials: true
 }));
