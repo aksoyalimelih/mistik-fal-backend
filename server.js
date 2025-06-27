@@ -25,6 +25,28 @@ const PORT = process.env.PORT || 3020;
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
+// MongoDB bağlantısı ve User modeli en başa taşındı
+const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/mistikfal';
+const userSchema = new mongoose.Schema({
+  username: { type: String, required: true },
+  email: { type: String, required: true, unique: true },
+  password: { type: String, required: true },
+  birthDate: { type: Date },
+  credits: { type: Number, default: 10 },
+  createdAt: { type: Date, default: Date.now },
+  trialRights: {
+    tarot: { type: Boolean, default: true },
+    coffee: { type: Boolean, default: true },
+    zodiac: { type: Boolean, default: true },
+    face: { type: Boolean, default: true }
+  }
+});
+const User = mongoose.model('User', userSchema);
+
+mongoose.connect(MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true })
+  .then(() => console.log('MongoDB bağlantısı başarılı'))
+  .catch(err => console.error('MongoDB bağlantı hatası:', err));
+
 // Middleware
 app.use(helmet());
 app.use(cors({
@@ -53,10 +75,6 @@ app.use('/api/', limiter);
 
 // Initialize Gemini AI
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-
-// In-memory user storage (production'da database kullanın)
-const users = new Map();
-const userCredits = new Map();
 
 // Middleware to check API key
 const checkApiKey = (req, res, next) => {
@@ -169,15 +187,15 @@ app.post('/api/login', async (req, res) => {
   }
 });
 
-// Get user credits
-app.get('/api/user/:email/credits', (req, res) => {
+// Get user credits (MongoDB)
+app.get('/api/user/:email/credits', async (req, res) => {
   try {
     const { email } = req.params;
-    const credits = userCredits.get(email) || 0;
-    const user = users.get(email);
+    const user = await User.findOne({ email });
+    if (!user) return res.status(404).json({ error: 'User not found' });
     res.json({ 
-      credits,
-      trialRights: user ? user.trialRights : null
+      credits: user.credits,
+      trialRights: user.trialRights
     });
   } catch (error) {
     console.error('Get credits error:', error);
@@ -202,17 +220,16 @@ const logger = winston.createLogger({
 app.post('/api/fortune', checkApiKey, async (req, res) => {
   try {
     const { type, userEmail, question, birthDate, zodiacSign, imageData } = req.body;
-    
     if (!userEmail) {
       return res.status(400).json({ error: 'User email is required' });
     }
-    
-    const user = users.get(userEmail);
+    // Email'i normalize et (küçük harfe çevir, boşlukları kırp)
+    const normalizedEmail = userEmail.trim().toLowerCase();
+    const user = await User.findOne({ email: normalizedEmail });
     if (!user) {
-      return res.status(404).json({ error: 'User not found' });
+      return res.status(404).json({ error: 'User not found', email: normalizedEmail });
     }
-
-    // Fal türüne göre promptu PHP örneğindeki gibi oluştur
+    // Fal türüne göre promptu oluştur
     let prompt = '';
     switch (type) {
       case 'face':
@@ -233,49 +250,36 @@ app.post('/api/fortune', checkApiKey, async (req, res) => {
       default:
         prompt = `Sen deneyimli bir falcısın. Kullanıcıya gönderilen fal türüne göre gerçekçi, gizemli ve mistik yorumlar yap. Sadece istenen fal türüne odaklan, başka türlerden bahsetme.`;
     }
-    // Kullanıcıdan gelen soruyu veya ek veriyi prompta ekle
     if (question) prompt += `\nSoru: ${question}`;
     if (birthDate) prompt += `\nDoğum tarihi: ${birthDate}`;
     if (zodiacSign) prompt += `\nBurç: ${zodiacSign}`;
-
-    // Resim var mı kontrol et
     const hasImageData = hasImage(imageData);
-    
-    // Model seçimi - resim varsa vision modeli kullan
     const modelName = "gemini-1.5-flash";
     const model = genAI.getGenerativeModel({ model: modelName });
-
-    // Log: Modele giden prompt ve görsel bilgisi
     console.log('MODELE GİDEN PROMPT:', prompt);
     if (hasImageData) {
       console.log('GÖNDERİLEN RESİM VAR (base64 uzunluğu):', imageData.length);
     }
     fs.appendFileSync('model-logs.txt', JSON.stringify({ date: new Date(), type, userEmail, prompt, hasImageData, imageLength: imageData ? imageData.length : 0 }) + '\n');
-
     // Önce deneme hakkı kontrolü
     if (user.trialRights && user.trialRights[type]) {
       user.trialRights[type] = false; // Hakkı tüket
-      
+      await user.save();
       let result;
       if (hasImageData) {
-        // Resimli fal için
         const imagePart = createImagePart(imageData);
         result = await model.generateContent([prompt, imagePart]);
       } else {
-        // Metinli fal için
         result = await model.generateContent(prompt);
       }
-      
       const response = await result.response;
       const text = response.text();
-      // Log: Modelden dönen yanıt
       console.log('MODEL ÇIKTISI:', text);
       fs.appendFileSync('model-logs.txt', JSON.stringify({ date: new Date(), type, userEmail, prompt, response: text }) + '\n');
-      
       res.json({
         fortune: text,
         type,
-        creditsRemaining: userCredits.get(userEmail),
+        creditsRemaining: user.credits,
         trialUsed: true,
         trialRights: user.trialRights,
         hasImage: hasImageData,
@@ -283,50 +287,36 @@ app.post('/api/fortune', checkApiKey, async (req, res) => {
       });
       return;
     }
-
     // Deneme hakkı yoksa kredi kontrolü
-    const currentCredits = userCredits.get(userEmail) || 0;
-    if (currentCredits <= 0) {
+    if (user.credits <= 0) {
       return res.status(402).json({ error: 'Insufficient credits' });
     }
-    
-    userCredits.set(userEmail, currentCredits - 1);
-    
+    user.credits -= 1;
+    await user.save();
     let result;
     if (hasImageData) {
-      // Resimli fal için
       const imagePart = createImagePart(imageData);
       result = await model.generateContent([prompt, imagePart]);
     } else {
-      // Metinli fal için
       result = await model.generateContent(prompt);
     }
-    
     const response = await result.response;
     const text = response.text();
-    // Log: Modelden dönen yanıt
     console.log('MODEL ÇIKTISI:', text);
     fs.appendFileSync('model-logs.txt', JSON.stringify({ date: new Date(), type, userEmail, prompt, response: text }) + '\n');
-    
     res.json({
       fortune: text,
       type,
-      creditsRemaining: userCredits.get(userEmail),
+      creditsRemaining: user.credits,
       trialUsed: false,
       trialRights: user.trialRights,
       hasImage: hasImageData,
       timestamp: new Date().toISOString()
     });
-    
   } catch (error) {
     console.error('Fortune API error:', error);
     const { userEmail } = req.body;
-    if (userEmail) {
-      const currentCredits = userCredits.get(userEmail) || 0;
-      userCredits.set(userEmail, currentCredits + 1);
-    }
-    
-    // Gemini Vision model hatası kontrolü
+    // Kredi iadesi veya başka bir işlem gerekirse buraya ekleyebilirsin
     if (error.message.includes('gemini-pro-vision') || error.message.includes('not found')) {
       res.status(500).json({ 
         error: 'Resimli fal desteği mevcut değil. Lütfen sadece metinli fal kullanın.',
@@ -342,18 +332,18 @@ app.post('/api/fortune', checkApiKey, async (req, res) => {
   }
 });
 
-// Add credits endpoint (for testing)
-app.post('/api/user/:email/add-credits', (req, res) => {
+// Add credits endpoint (MongoDB)
+app.post('/api/user/:email/add-credits', async (req, res) => {
   try {
     const { email } = req.params;
     const { amount } = req.body;
-    
-    const currentCredits = userCredits.get(email) || 0;
-    userCredits.set(email, currentCredits + (amount || 10));
-    
+    const user = await User.findOne({ email });
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    user.credits += amount || 10;
+    await user.save();
     res.json({ 
       message: 'Credits added successfully',
-      credits: userCredits.get(email)
+      credits: user.credits
     });
   } catch (error) {
     console.error('Add credits error:', error);
@@ -392,6 +382,12 @@ app.get('/api/profile', authenticateJWT, async (req, res) => {
     logger.error('Profile fetch error', { error });
     res.status(500).json({ error: 'Internal server error' });
   }
+});
+
+// Debug endpoint: Tüm kullanıcıları döndür
+app.get('/api/debug/users', async (req, res) => {
+  const users = await User.find({});
+  res.json(users);
 });
 
 // Error handling middleware
@@ -433,51 +429,13 @@ app.get('/api/auth/google/callback', passport.authenticate('google', { session: 
   res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:5173'}/auth/social?token=${token}`);
 });
 
-// 404 handler
+// 404 handler (en sonda olmalı!)
 app.use('*', (req, res) => {
   res.status(404).json({ error: 'Endpoint not found' });
 });
 
 app.use(xss());
 app.use(hpp());
-
-// MongoDB bağlantısı
-const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/mistikfal';
-mongoose.connect(MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true })
-  .then(() => console.log('MongoDB bağlantısı başarılı'))
-  .catch(err => console.error('MongoDB bağlantı hatası:', err));
-
-// User modeli
-const userSchema = new mongoose.Schema({
-  username: { type: String, required: true },
-  email: { type: String, required: true, unique: true },
-  password: { type: String, required: true },
-  birthDate: { type: Date },
-  credits: { type: Number, default: 10 },
-  createdAt: { type: Date, default: Date.now },
-  trialRights: {
-    tarot: { type: Boolean, default: true },
-    coffee: { type: Boolean, default: true },
-    zodiac: { type: Boolean, default: true },
-    face: { type: Boolean, default: true }
-  }
-});
-const User = mongoose.model('User', userSchema);
-
-// JWT doğrulama middleware
-function authenticateJWT(req, res, next) {
-  const authHeader = req.headers.authorization;
-  if (authHeader && authHeader.startsWith('Bearer ')) {
-    const token = authHeader.split(' ')[1];
-    jwt.verify(token, JWT_SECRET, (err, user) => {
-      if (err) return res.status(403).json({ error: 'Invalid or expired token' });
-      req.user = user;
-      next();
-    });
-  } else {
-    res.status(401).json({ error: 'No token provided' });
-  }
-}
 
 if (process.env.NODE_ENV !== 'production') {
   app.use(morgan('dev'));
