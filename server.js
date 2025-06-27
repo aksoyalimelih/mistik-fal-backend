@@ -5,10 +5,25 @@ const rateLimit = require('express-rate-limit');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 require('dotenv').config({ path: './config.env' });
 const fs = require('fs');
+const axios = require('axios');
+const xss = require('xss-clean');
+const hpp = require('hpp');
+const winston = require('winston');
+const Joi = require('joi');
+const mongoose = require('mongoose');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const passport = require('passport');
+const GoogleStrategy = require('passport-google-oauth20').Strategy;
+const cookieParser = require('cookie-parser');
+const mongoSanitize = require('express-mongo-sanitize');
+const morgan = require('morgan');
 
 const app = express();
 app.set('trust proxy', 1); // Render ve benzeri platformlar için gerekli
 const PORT = process.env.PORT || 3020;
+
+const JWT_SECRET = process.env.JWT_SECRET;
 
 // Middleware
 app.use(helmet());
@@ -25,6 +40,8 @@ app.use(cors({
   credentials: true
 }));
 app.use(express.json({ limit: '50mb' })); // Resim için daha büyük limit
+app.use(cookieParser());
+app.use(passport.initialize());
 
 // Rate limiting
 const limiter = rateLimit({
@@ -73,75 +90,81 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', message: 'Fortune Backend is running' });
 });
 
-// User registration
+// User registration (MongoDB)
 app.post('/api/register', async (req, res) => {
   try {
-    const { username, email, password } = req.body;
-    
-    if (!username || !email || !password) {
-      return res.status(400).json({ error: 'All fields are required' });
+    const schema = Joi.object({
+      username: Joi.string().min(2).max(32).required(),
+      email: Joi.string().email().required(),
+      password: Joi.string().min(6).max(64).required(),
+      birthDate: Joi.date().required()
+    });
+    const { error } = schema.validate(req.body);
+    if (error) {
+      return res.status(400).json({ error: error.details[0].message });
     }
-    
-    // Check if user already exists
-    if (users.has(email)) {
+    const { username, email, password, birthDate } = req.body;
+    // Email benzersizliği kontrolü
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
       return res.status(400).json({ error: 'User already exists' });
     }
-    
-    // Create user (in production, password should be hashed)
-    const user = {
-      id: Date.now().toString(),
+    // Şifreyi hashle
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const user = new User({
       username,
       email,
-      password, // In production, hash this
-      credits: 10, // Free credits
-      createdAt: new Date(),
-      trialRights: {
-        tarot: true,
-        coffee: true,
-        zodiac: true,
-        face: true
-      }
-    };
-    
-    users.set(email, user);
-    userCredits.set(email, 10);
-    
-    res.status(201).json({ 
+      password: hashedPassword,
+      birthDate,
+      credits: 10,
+      trialRights: { tarot: true, coffee: true, zodiac: true, face: true }
+    });
+    await user.save();
+    res.status(201).json({
       message: 'User registered successfully',
-      user: { id: user.id, username, email, credits: user.credits, trialRights: user.trialRights }
+      user: { id: user._id, username, email, credits: user.credits, trialRights: user.trialRights }
     });
   } catch (error) {
-    console.error('Registration error:', error);
+    logger.error('Registration error', { error });
     res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-// User login
+// User login (MongoDB + JWT)
 app.post('/api/login', async (req, res) => {
   try {
-    const { email, password } = req.body;
-    
-    if (!email || !password) {
-      return res.status(400).json({ error: 'Email and password are required' });
+    const schema = Joi.object({
+      email: Joi.string().email().required(),
+      password: Joi.string().min(6).max(64).required()
+    });
+    const { error } = schema.validate(req.body);
+    if (error) {
+      return res.status(400).json({ error: error.details[0].message });
     }
-    
-    const user = users.get(email);
-    if (!user || user.password !== password) {
+    const { email, password } = req.body;
+    const user = await User.findOne({ email });
+    if (!user) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
-    
-    res.json({ 
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+    // JWT token oluştur
+    const token = jwt.sign({ id: user._id, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
+    res.json({
       message: 'Login successful',
-      user: { 
-        id: user.id, 
-        username: user.username, 
-        email: user.email, 
-        credits: userCredits.get(email) || 0,
+      token,
+      user: {
+        id: user._id,
+        username: user.username,
+        email: user.email,
+        credits: user.credits,
         trialRights: user.trialRights
       }
     });
   } catch (error) {
-    console.error('Login error:', error);
+    logger.error('Login error', { error });
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -160,6 +183,19 @@ app.get('/api/user/:email/credits', (req, res) => {
     console.error('Get credits error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
+});
+
+// Winston logger kurulumu
+const logger = winston.createLogger({
+  level: 'info',
+  format: winston.format.combine(
+    winston.format.timestamp(),
+    winston.format.json()
+  ),
+  transports: [
+    new winston.transports.File({ filename: 'error.log', level: 'error' }),
+    new winston.transports.File({ filename: 'combined.log' })
+  ]
 });
 
 // Fortune telling endpoint with image support
@@ -325,16 +361,128 @@ app.post('/api/user/:email/add-credits', (req, res) => {
   }
 });
 
+// Aztro API endpoint yerine Gemini ile burç yorumu
+app.post('/api/horoscope', async (req, res) => {
+  const { sign, day } = req.body;
+  // Türkçe burç isimlerini İngilizceye çevir
+  const signMap = {
+    koc: 'aries', boga: 'taurus', ikizler: 'gemini', yengec: 'cancer', aslan: 'leo', basak: 'virgo',
+    terazi: 'libra', akrep: 'scorpio', yay: 'sagittarius', oglak: 'capricorn', kova: 'aquarius', balik: 'pisces'
+  };
+  const engSign = signMap[sign.toLowerCase()] || sign;
+  try {
+    const prompt = `Bugün için ${engSign.charAt(0).toUpperCase() + engSign.slice(1)} burcuna özel kısa, özgün ve pozitif bir günlük burç yorumu hazırla.`;
+    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    const text = response.text();
+    res.json({ horoscope: text });
+  } catch (error) {
+    res.status(500).json({ error: 'Gemini API hatası', details: error.message });
+  }
+});
+
+// Korumalı profil endpointi (JWT ile)
+app.get('/api/profile', authenticateJWT, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id).select('-password');
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    res.json({ user });
+  } catch (error) {
+    logger.error('Profile fetch error', { error });
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Error handling middleware
 app.use((error, req, res, next) => {
   console.error('Unhandled error:', error);
   res.status(500).json({ error: 'Internal server error' });
 });
 
+// Passport Google Strategy
+passport.use(new GoogleStrategy({
+  clientID: process.env.GOOGLE_CLIENT_ID,
+  clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+  callbackURL: process.env.GOOGLE_CALLBACK_URL || 'http://localhost:3020/api/auth/google/callback',
+}, async (accessToken, refreshToken, profile, done) => {
+  try {
+    let user = await User.findOne({ email: profile.emails[0].value });
+    if (!user) {
+      user = new User({
+        username: profile.displayName,
+        email: profile.emails[0].value,
+        password: 'google_oauth',
+        credits: 10,
+        trialRights: { tarot: true, coffee: true, zodiac: true, face: true }
+      });
+      await user.save();
+    }
+    return done(null, user);
+  } catch (err) {
+    return done(err, null);
+  }
+}));
+
+// Google Auth Routes
+app.get('/api/auth/google', passport.authenticate('google', { scope: ['profile', 'email'] }));
+app.get('/api/auth/google/callback', passport.authenticate('google', { session: false, failureRedirect: '/auth?error=google' }), (req, res) => {
+  // JWT token oluştur ve frontend'e yönlendir
+  const token = jwt.sign({ id: req.user._id, email: req.user.email }, JWT_SECRET, { expiresIn: '7d' });
+  // Frontend'e token ile yönlendir (örnek: /auth/social?token=...)
+  res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:5173'}/auth/social?token=${token}`);
+});
+
 // 404 handler
 app.use('*', (req, res) => {
   res.status(404).json({ error: 'Endpoint not found' });
 });
+
+app.use(xss());
+app.use(hpp());
+
+// MongoDB bağlantısı
+const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/mistikfal';
+mongoose.connect(MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true })
+  .then(() => console.log('MongoDB bağlantısı başarılı'))
+  .catch(err => console.error('MongoDB bağlantı hatası:', err));
+
+// User modeli
+const userSchema = new mongoose.Schema({
+  username: { type: String, required: true },
+  email: { type: String, required: true, unique: true },
+  password: { type: String, required: true },
+  birthDate: { type: Date },
+  credits: { type: Number, default: 10 },
+  createdAt: { type: Date, default: Date.now },
+  trialRights: {
+    tarot: { type: Boolean, default: true },
+    coffee: { type: Boolean, default: true },
+    zodiac: { type: Boolean, default: true },
+    face: { type: Boolean, default: true }
+  }
+});
+const User = mongoose.model('User', userSchema);
+
+// JWT doğrulama middleware
+function authenticateJWT(req, res, next) {
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.split(' ')[1];
+    jwt.verify(token, JWT_SECRET, (err, user) => {
+      if (err) return res.status(403).json({ error: 'Invalid or expired token' });
+      req.user = user;
+      next();
+    });
+  } else {
+    res.status(401).json({ error: 'No token provided' });
+  }
+}
+
+if (process.env.NODE_ENV !== 'production') {
+  app.use(morgan('dev'));
+}
+app.use(mongoSanitize());
 
 app.listen(PORT, () => {
   console.log(`🚀 Fortune Backend running on port ${PORT}`);
