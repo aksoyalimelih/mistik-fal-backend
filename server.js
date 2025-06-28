@@ -32,6 +32,7 @@ const userSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true },
   password: { type: String, required: true },
   birthDate: { type: Date },
+  gender: { type: String, enum: ['male', 'female', 'other'], default: 'other' },
   role: { type: String, enum: ['user', 'admin', 'fortune_teller'], default: 'user' },
   credits: { type: Number, default: 10 },
   createdAt: { type: Date, default: Date.now },
@@ -131,13 +132,14 @@ app.post('/api/register', async (req, res) => {
       username: Joi.string().min(2).max(32).required(),
       email: Joi.string().email().required(),
       password: Joi.string().min(6).max(64).required(),
-      birthDate: Joi.date().required()
+      birthDate: Joi.date().required(),
+      gender: Joi.string().valid('male', 'female', 'other').required()
     });
     const { error } = schema.validate(req.body);
     if (error) {
       return res.status(400).json({ error: error.details[0].message });
     }
-    const { username, email, password, birthDate } = req.body;
+    const { username, email, password, birthDate, gender } = req.body;
     // Email benzersizliği kontrolü
     const existingUser = await User.findOne({ email });
     if (existingUser) {
@@ -150,13 +152,14 @@ app.post('/api/register', async (req, res) => {
       email,
       password: hashedPassword,
       birthDate,
+      gender,
       credits: 10,
       trialRights: { tarot: true, coffee: true, zodiac: true, face: true }
     });
     await user.save();
     res.status(201).json({
       message: 'User registered successfully',
-      user: { id: user._id, username, email, role: user.role, credits: user.credits, trialRights: user.trialRights }
+      user: { id: user._id, username, email, gender, role: user.role, credits: user.credits, trialRights: user.trialRights }
     });
   } catch (error) {
     logger.error('Registration error', { error });
@@ -194,6 +197,7 @@ app.post('/api/login', async (req, res) => {
         id: user._id,
         username: user.username,
         email: user.email,
+        gender: user.gender,
         role: user.role,
         credits: user.credits,
         trialRights: user.trialRights
@@ -237,7 +241,7 @@ const logger = winston.createLogger({
 // Fortune telling endpoint with image support
 app.post('/api/fortune', checkApiKey, async (req, res) => {
   try {
-    const { type, userEmail, question, birthDate, zodiacSign, imageData } = req.body;
+    const { type, userEmail, question, birthDate, zodiacSign, imageData, username, gender } = req.body;
     if (!userEmail) {
       return res.status(400).json({ error: 'User email is required' });
     }
@@ -271,6 +275,8 @@ app.post('/api/fortune', checkApiKey, async (req, res) => {
     if (question) prompt += `\nSoru: ${question}`;
     if (birthDate) prompt += `\nDoğum tarihi: ${birthDate}`;
     if (zodiacSign) prompt += `\nBurç: ${zodiacSign}`;
+    if (username) prompt += `\nKullanıcı adı: ${username}`;
+    if (gender) prompt += `\nCinsiyet: ${gender}`;
     const hasImageData = hasImage(imageData);
     const modelName = "gemini-1.5-flash";
     const model = genAI.getGenerativeModel({ model: modelName });
