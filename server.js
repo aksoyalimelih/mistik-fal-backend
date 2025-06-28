@@ -431,14 +431,29 @@ app.post('/api/horoscope', async (req, res) => {
   }
 });
 
-// Korumalı profil endpointi (JWT ile)
-app.get('/api/profile', authenticateJWT, async (req, res) => {
+// Kullanıcı profilini güncelleme endpointi (JWT ile korumalı)
+app.put('/api/profile', authenticateJWT, async (req, res) => {
   try {
-    const user = await User.findById(req.user.id).select('-password');
+    const schema = Joi.object({
+      username: Joi.string().min(2).max(32),
+      email: Joi.string().email(),
+      birthDate: Joi.date(),
+      gender: Joi.string().valid('male', 'female', 'other')
+    });
+    const { error } = schema.validate(req.body);
+    if (error) {
+      return res.status(400).json({ error: error.details[0].message });
+    }
+    const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ error: 'User not found' });
-    res.json({ user });
+    if (req.body.username) user.username = req.body.username;
+    if (req.body.email) user.email = req.body.email;
+    if (req.body.birthDate) user.birthDate = req.body.birthDate;
+    if (req.body.gender) user.gender = req.body.gender;
+    await user.save();
+    res.json({ message: 'Profil güncellendi', user });
   } catch (error) {
-    logger.error('Profile fetch error', { error });
+    logger.error('Profile update error', { error });
     res.status(500).json({ error: 'Internal server error' });
   }
 });
