@@ -166,6 +166,7 @@ app.post('/api/register', async (req, res) => {
 
 // User login (MongoDB + JWT)
 app.post('/api/login', async (req, res) => {
+  console.log('GELEN BODY:', req.body); // DEBUG LOG
   try {
     const schema = Joi.object({
       email: Joi.string().email().required(),
