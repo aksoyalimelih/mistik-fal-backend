@@ -32,6 +32,7 @@ const userSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true },
   password: { type: String, required: true },
   birthDate: { type: Date },
+  role: { type: String, enum: ['user', 'admin', 'fortune_teller'], default: 'user' },
   credits: { type: Number, default: 10 },
   createdAt: { type: Date, default: Date.now },
   trialRights: {
@@ -155,7 +156,7 @@ app.post('/api/register', async (req, res) => {
     await user.save();
     res.status(201).json({
       message: 'User registered successfully',
-      user: { id: user._id, username, email, credits: user.credits, trialRights: user.trialRights }
+      user: { id: user._id, username, email, role: user.role, credits: user.credits, trialRights: user.trialRights }
     });
   } catch (error) {
     logger.error('Registration error', { error });
@@ -192,6 +193,7 @@ app.post('/api/login', async (req, res) => {
         id: user._id,
         username: user.username,
         email: user.email,
+        role: user.role,
         credits: user.credits,
         trialRights: user.trialRights
       }
@@ -295,6 +297,7 @@ app.post('/api/fortune', checkApiKey, async (req, res) => {
         fortune: text,
         type,
         creditsRemaining: user.credits,
+        creditsUsed: 0,
         trialUsed: true,
         trialRights: user.trialRights,
         hasImage: hasImageData,
@@ -306,7 +309,40 @@ app.post('/api/fortune', checkApiKey, async (req, res) => {
     if (user.credits <= 0) {
       return res.status(402).json({ error: 'Insufficient credits' });
     }
-    user.credits -= 1;
+    
+    // Fal türüne göre kredi maliyeti belirle
+    const creditCosts = {
+      tarot: 5,
+      coffee: 10,
+      palm: 10,
+      astrology: 15,
+      numerology: 5,
+      dream: 5,
+      love: 5,
+      'face-reading': 15,
+      crystal: 5,
+      graphology: 10,
+      'bean-fortune': 8,
+      'water-fortune': 8,
+      'candle-fortune': 8,
+      'playing-cards': 6,
+      zodiac: 5,
+      face: 15
+    };
+    
+    const creditCost = creditCosts[type] || 1;
+    
+    // Yeterli kredi kontrolü
+    if (user.credits < creditCost) {
+      return res.status(402).json({ 
+        error: 'Insufficient credits', 
+        required: creditCost, 
+        available: user.credits 
+      });
+    }
+    
+    // Krediyi düş
+    user.credits -= creditCost;
     await user.save();
     let result;
     if (hasImageData) {
@@ -323,6 +359,7 @@ app.post('/api/fortune', checkApiKey, async (req, res) => {
       fortune: text,
       type,
       creditsRemaining: user.credits,
+      creditsUsed: creditCost,
       trialUsed: false,
       trialRights: user.trialRights,
       hasImage: hasImageData,
@@ -399,6 +436,56 @@ app.get('/api/profile', authenticateJWT, async (req, res) => {
   }
 });
 
+// Admin endpoint: Tüm kullanıcıları ve istatistikleri döndür
+app.get('/api/admin/users', authenticateJWT, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+    if (!user || user.role !== 'admin') {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    
+    const users = await User.find({}).select('-password');
+    const totalUsers = users.length;
+    const totalCredits = users.reduce((sum, user) => sum + user.credits, 0);
+    
+    res.json({
+      users,
+      stats: {
+        totalUsers,
+        totalCredits,
+        averageCredits: totalUsers > 0 ? Math.round(totalCredits / totalUsers) : 0
+      }
+    });
+  } catch (error) {
+    console.error('Admin users error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Falcı endpoint: Kendi müşterilerini görüntüle
+app.get('/api/fortune-teller/customers', authenticateJWT, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+    if (!user || user.role !== 'fortune_teller') {
+      return res.status(403).json({ error: 'Fortune teller access required' });
+    }
+    
+    // Falcının müşterilerini getir (şimdilik tüm kullanıcılar)
+    const customers = await User.find({ role: 'user' }).select('-password');
+    
+    res.json({
+      customers,
+      stats: {
+        totalCustomers: customers.length,
+        activeCustomers: customers.filter(c => c.credits > 0).length
+      }
+    });
+  } catch (error) {
+    console.error('Fortune teller customers error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Debug endpoint: Tüm kullanıcıları döndür
 app.get('/api/debug/users', async (req, res) => {
   const users = await User.find({});
@@ -424,6 +511,7 @@ passport.use(new GoogleStrategy({
         username: profile.displayName,
         email: profile.emails[0].value,
         password: 'google_oauth',
+        role: 'user',
         credits: 10,
         trialRights: { tarot: true, coffee: true, zodiac: true, face: true }
       });
