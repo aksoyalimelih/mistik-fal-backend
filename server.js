@@ -546,6 +546,20 @@ if (process.env.NODE_ENV !== 'production') {
 }
 app.use(mongoSanitize());
 
+// API routes
+app.use('/api', require('./routes/api'));
+
+// Sadece production'da frontend'i serve et
+if (process.env.NODE_ENV === 'production') {
+  const path = require('path');
+  app.use(express.static(path.join(__dirname, '../public_html')));
+  app.get('*', (req, res) => {
+    // Eğer istek /api ile başlıyorsa, next() ile Express route'larına git
+    if (req.path.startsWith('/api')) return res.status(404).json({ error: 'API endpoint not found' });
+    res.sendFile(path.join(__dirname, '../public_html', 'index.html'));
+  });
+}
+
 app.listen(PORT, () => {
   console.log(`🚀 Fortune Backend running on port ${PORT}`);
   console.log(`📡 Health check: http://localhost:${PORT}/api/health`);
