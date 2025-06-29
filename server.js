@@ -303,6 +303,7 @@ app.post('/api/fortune', checkApiKey, async (req, res) => {
         prompt = `Sen deneyimli, samimi ve mistik bir falcısın. Kullanıcıya gönderilen fal türüne göre gerçekçi, gizemli ve spiritüel yorumlar yap. Yorumlarında geçmişte yaşanmış olabilecek olaylara dair tahminlerde bulun, 'Bazen böyle hissetmiş olabilirsin, değil mi?' gibi sorular sor. Kullanıcıya hem sorular sor, hem de çıkarımlar yaparak geçmiş-şimdi-gelecek arasında bağlantı kur. Sadece istenen fal türüne odaklan, başka türlerden bahsetme.`;
     }
     if (question) prompt += `\nSoru: ${question}`;
+    if (type === 'crystal' && req.body.crystal) prompt += `\nSeçilen kristal: ${req.body.crystal}`;
     if (birthDate) prompt += `\nDoğum tarihi: ${birthDate}`;
     if (zodiacSign) prompt += `\nBurç: ${zodiacSign}`;
     if (username) prompt += `\nKullanıcı adı: ${username}`;
