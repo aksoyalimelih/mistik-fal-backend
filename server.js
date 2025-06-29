@@ -317,24 +317,27 @@ app.post('/api/fortune', checkApiKey, async (req, res) => {
       return res.status(402).json({ error: 'Insufficient credits' });
     }
     
-    // Fal türüne göre kredi maliyeti belirle
+    // Fal türüne göre kredi maliyeti belirle (OPTİMİZE EDİLDİ)
+    // Eski değerler: tarot: 5, coffee: 10, palm: 10, face: 15, astrology: 15, dream: 5, love: 5, playing-cards: 6, vs.
+    // Yeni değerler:
+    // tarot: 3, coffee: 5, palm: 5, face: 7, astrology: 7, dream: 3, love: 3, playing-cards: 4, zodiac: 2, diğerleri: 2
     const creditCosts = {
-      tarot: 5,
-      coffee: 10,
-      palm: 10,
-      astrology: 15,
-      numerology: 5,
-      dream: 5,
-      love: 5,
-      'face-reading': 15,
-      crystal: 5,
-      graphology: 10,
-      'bean-fortune': 8,
-      'water-fortune': 8,
-      'candle-fortune': 8,
-      'playing-cards': 6,
-      zodiac: 5,
-      face: 15
+      tarot: 3,
+      coffee: 5,
+      palm: 5,
+      astrology: 7,
+      numerology: 3,
+      dream: 3,
+      love: 3,
+      'face-reading': 7,
+      crystal: 3,
+      graphology: 4,
+      'bean-fortune': 3,
+      'water-fortune': 3,
+      'candle-fortune': 3,
+      'playing-cards': 4,
+      zodiac: 2,
+      face: 7
     };
     
     const creditCost = creditCosts[type] || 1;
