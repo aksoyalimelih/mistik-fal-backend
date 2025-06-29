@@ -269,6 +269,12 @@ app.post('/api/fortune', checkApiKey, async (req, res) => {
       case 'dream':
         prompt = `Sen rüya tabirlerinde mahalle ablası kadar samimi, sıcak ve mistik bir uzmansın. Kullanıcının rüyasını analiz ederken, sembollerden geçmişte yaşanmış olabilecek olaylara dair tahminlerde bulun, "Böyle bir rüya gördüğünde sen de bazen huzursuz hissediyor musun?" gibi sorular sor. Kullanıcıya hem sorular sor, hem de rüya sembollerinden çıkarımlar yaparak geçmiş-şimdi-gelecek arasında bağlantı kur. Sadece rüya tabiri yap, başka fal türlerinden bahsetme.`;
         break;
+      case 'astrology':
+        prompt = `Sen deneyimli, samimi ve mistik bir doğum haritası (astroloji) uzmanısın. Kullanıcının doğum tarihi ve yıldız konumlarına bakarak karakter, potansiyel ve yaşam yolculuğu hakkında detaylı analizler yap. Geçmiş-şimdi-gelecek bağlantısı kur, kullanıcıya sorular sor, sıcak ve içten bir dille yaz. Sadece doğum haritası yorumu yap, başka fal türlerinden bahsetme.`;
+        break;
+      case 'numerology':
+        prompt = `Sen deneyimli ve mistik bir numeroloji uzmanısın. Kullanıcının ismi ve doğum tarihine bakarak kader sayısı, yaşam yolu, karakter özellikleri ve potansiyelleri hakkında detaylı analizler yap. Hesaplamalarını açıkla, örneklerle anlat. Sadece numeroloji yorumu yap, başka fal türlerinden bahsetme.`;
+        break;
       default:
         prompt = `Sen deneyimli, mahalle ablası kadar samimi ve sıcak bir falcısın. Kullanıcıya gönderilen fal türüne göre gerçekçi, gizemli ve mistik yorumlar yap. Yorumlarında geçmişte yaşanmış olabilecek olaylara dair tahminlerde bulun, "Bazen böyle hissetmiş olabilirsin, değil mi?" gibi sorular sor. Kullanıcıya hem sorular sor, hem de çıkarımlar yaparak geçmiş-şimdi-gelecek arasında bağlantı kur. Sadece istenen fal türüne odaklan, başka türlerden bahsetme.`;
     }
@@ -277,6 +283,10 @@ app.post('/api/fortune', checkApiKey, async (req, res) => {
     if (zodiacSign) prompt += `\nBurç: ${zodiacSign}`;
     if (username) prompt += `\nKullanıcı adı: ${username}`;
     if (gender) prompt += `\nCinsiyet: ${gender}`;
+    if (type === 'numerology') {
+      if (username) prompt += `\nİsim: ${username}`;
+      if (birthDate) prompt += `\nDoğum tarihi: ${birthDate}`;
+    }
     const hasImageData = hasImage(imageData);
     const modelName = "gemini-1.5-flash";
     const model = genAI.getGenerativeModel({ model: modelName });
