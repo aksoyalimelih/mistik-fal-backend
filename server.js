@@ -503,20 +503,27 @@ app.post('/api/user/:email/add-credits', async (req, res) => {
 });
 
 // Aztro API endpoint yerine Gemini ile burç yorumu
-app.post('/api/horoscope', async (req, res) => {
+app.post('/api/horoscope', authenticateJWT, async (req, res) => {
   const { sign, day } = req.body;
-  // Türkçe burç isimlerini İngilizceye çevir
-  const signMap = {
-    koc: 'aries', boga: 'taurus', ikizler: 'gemini', yengec: 'cancer', aslan: 'leo', basak: 'virgo',
-    terazi: 'libra', akrep: 'scorpio', yay: 'sagittarius', oglak: 'capricorn', kova: 'aquarius', balik: 'pisces'
-  };
-  const engSign = signMap[sign.toLowerCase()] || sign;
+  // sign: 'koc', 'boga', ...
   try {
-    const prompt = `Bugün için ${engSign.charAt(0).toUpperCase() + engSign.slice(1)} burcuna özel kısa, özgün ve pozitif bir günlük burç yorumu hazırla.`;
+    const prompt = `Bugün için ${sign.charAt(0).toUpperCase() + sign.slice(1)} burcuna özel kısa, özgün ve pozitif bir günlük burç yorumu hazırla.`;
     const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
     const result = await model.generateContent(prompt);
     const response = await result.response;
     const text = await response.text();
+    // Geçmiş fallara kaydet
+    const user = await User.findById(req.user.id);
+    if (user) {
+      user.pastReadings.unshift({
+        id: Date.now(),
+        title: 'Günlük Burç Yorumu',
+        reading: text,
+        type: 'daily-horoscope',
+        date: new Date(),
+      });
+      await user.save();
+    }
     res.json({ horoscope: text });
   } catch (error) {
     res.status(500).json({ error: 'Gemini API hatası', details: error.message });
