@@ -75,12 +75,15 @@ function authenticateJWT(req, res, next) {
   }
 }
 
-// Middleware
-app.use(cors({
-  origin: ['https://couva.de', 'http://localhost:5173'],
+// SADECE https://couva.de adresine izin verilecek şekilde CORS ayarı
+const corsOptions = {
+  origin: 'https://couva.de', // Sadece bu domain izinli
   credentials: true,
   allowedHeaders: ['Content-Type', 'Authorization']
-}));
+};
+app.use(cors(corsOptions));
+
+// Middleware
 app.use(helmet());
 app.use(express.json({ limit: '50mb' })); // Resim için daha büyük limit
 app.use(cookieParser());
