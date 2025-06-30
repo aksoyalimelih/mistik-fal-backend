@@ -641,6 +641,24 @@ app.get('/api/user/readings', authenticateJWT, async (req, res) => {
   }
 });
 
+// Kullanıcının geçmiş bir falını silme (JWT ile korumalı)
+app.delete('/api/user/readings/:id', authenticateJWT, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    const readingId = req.params.id;
+    const before = user.pastReadings.length;
+    user.pastReadings = user.pastReadings.filter(r => String(r.id) !== String(readingId));
+    if (user.pastReadings.length === before) {
+      return res.status(404).json({ error: 'Reading not found' });
+    }
+    await user.save();
+    res.json({ message: 'Reading deleted', pastReadings: user.pastReadings });
+  } catch (error) {
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Error handling middleware
 app.use((error, req, res, next) => {
   console.error('Unhandled error:', error);
