@@ -371,6 +371,15 @@ app.post('/api/fortune', checkApiKey, async (req, res) => {
       const text = response.text();
       console.log('MODEL ÇIKTISI:', text);
       fs.appendFileSync('model-logs.txt', JSON.stringify({ date: new Date(), type, userEmail, prompt, response: text }) + '\n');
+      user.pastReadings.unshift({
+        id: Date.now(),
+        date: new Date(),
+        type,
+        result: {
+          title: type.charAt(0).toUpperCase() + type.slice(1) + ' Falı',
+          reading: text
+        }
+      });
       res.json({
         fortune: text,
         type,
@@ -436,6 +445,15 @@ app.post('/api/fortune', checkApiKey, async (req, res) => {
     const text = response.text();
     console.log('MODEL ÇIKTISI:', text);
     fs.appendFileSync('model-logs.txt', JSON.stringify({ date: new Date(), type, userEmail, prompt, response: text }) + '\n');
+    user.pastReadings.unshift({
+      id: Date.now(),
+      date: new Date(),
+      type,
+      result: {
+        title: type.charAt(0).toUpperCase() + type.slice(1) + ' Falı',
+        reading: text
+      }
+    });
     res.json({
       fortune: text,
       type,
