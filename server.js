@@ -500,10 +500,14 @@ app.post('/api/horoscope', async (req, res) => {
 app.put('/api/profile', authenticateJWT, async (req, res) => {
   try {
     const schema = Joi.object({
-      username: Joi.string().min(2).max(32),
+      firstName: Joi.string().min(2).max(32),
+      lastName: Joi.string().min(2).max(32),
       email: Joi.string().email(),
       birthDate: Joi.date(),
-      gender: Joi.string().valid('male', 'female', 'other')
+      birthTime: Joi.string(),
+      birthPlace: Joi.string().min(2).max(100),
+      gender: Joi.string().valid('male', 'female', 'other'),
+      relationshipStatus: Joi.string().valid('single', 'in_relationship', 'married', 'separated', 'other')
     });
     const { error } = schema.validate(req.body);
     if (error) {
@@ -511,10 +515,14 @@ app.put('/api/profile', authenticateJWT, async (req, res) => {
     }
     const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ error: 'User not found' });
-    if (req.body.username) user.username = req.body.username;
+    if (req.body.firstName) user.firstName = req.body.firstName;
+    if (req.body.lastName) user.lastName = req.body.lastName;
     if (req.body.email) user.email = req.body.email;
     if (req.body.birthDate) user.birthDate = req.body.birthDate;
+    if (req.body.birthTime) user.birthTime = req.body.birthTime;
+    if (req.body.birthPlace) user.birthPlace = req.body.birthPlace;
     if (req.body.gender) user.gender = req.body.gender;
+    if (req.body.relationshipStatus) user.relationshipStatus = req.body.relationshipStatus;
     await user.save();
     res.json({ message: 'Profil güncellendi', user });
   } catch (error) {
