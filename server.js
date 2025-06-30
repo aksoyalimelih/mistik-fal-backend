@@ -46,7 +46,13 @@ const userSchema = new mongoose.Schema({
     coffee: { type: Boolean, default: true },
     zodiac: { type: Boolean, default: true },
     face: { type: Boolean, default: true }
-  }
+  },
+  pastReadings: [
+    {
+      type: Object,
+      required: true
+    }
+  ]
 });
 const User = mongoose.model('User', userSchema);
 
@@ -335,6 +341,9 @@ app.post('/api/fortune', checkApiKey, async (req, res) => {
     if (zodiacSign) prompt += `\nBurç: ${zodiacSign}`;
     if (username) prompt += `\nKullanıcı adı: ${username}`;
     if (gender) prompt += `\nCinsiyet: ${gender}`;
+    if (req.body.relationshipStatus) prompt += `\nİlişki durumu: ${req.body.relationshipStatus}`;
+    if (req.body.birthPlace) prompt += `\nDoğum yeri: ${req.body.birthPlace}`;
+    if (req.body.birthTime) prompt += `\nDoğum saati: ${req.body.birthTime}`;
     if (type === 'numerology') {
       if (username) prompt += `\nİsim: ${username}`;
       if (birthDate) prompt += `\nDoğum tarihi: ${birthDate}`;
@@ -585,6 +594,33 @@ app.get('/api/fortune-teller/customers', authenticateJWT, async (req, res) => {
 app.get('/api/debug/users', async (req, res) => {
   const users = await User.find({});
   res.json(users);
+});
+
+// Kullanıcıya geçmiş fal ekleme (JWT ile korumalı)
+app.post('/api/user/add-reading', authenticateJWT, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    const { reading } = req.body;
+    if (!reading) return res.status(400).json({ error: 'Reading is required' });
+    if (!user.pastReadings) user.pastReadings = [];
+    user.pastReadings.unshift({ ...reading, id: Date.now() });
+    await user.save();
+    res.json({ message: 'Reading added', pastReadings: user.pastReadings });
+  } catch (error) {
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Kullanıcının geçmiş fallarını çekme (JWT ile korumalı)
+app.get('/api/user/readings', authenticateJWT, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    res.json({ pastReadings: user.pastReadings || [] });
+  } catch (error) {
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 // Error handling middleware
