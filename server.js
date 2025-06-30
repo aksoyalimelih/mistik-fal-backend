@@ -37,6 +37,7 @@ const userSchema = new mongoose.Schema({
   birthTime: { type: String, required: true },
   birthPlace: { type: String, required: true },
   gender: { type: String, enum: ['male', 'female', 'other'], default: 'other' },
+  relationshipStatus: { type: String, enum: ['single', 'in_relationship', 'married', 'separated', 'other'], default: 'single' },
   role: { type: String, enum: ['user', 'admin', 'fortune_teller'], default: 'user' },
   credits: { type: Number, default: 10 },
   createdAt: { type: Date, default: Date.now },
@@ -141,13 +142,14 @@ app.post('/api/register', async (req, res) => {
       birthDate: Joi.date().required(),
       birthTime: Joi.string().required(),
       birthPlace: Joi.string().min(2).max(100).required(),
-      gender: Joi.string().valid('male', 'female', 'other').required()
+      gender: Joi.string().valid('male', 'female', 'other').required(),
+      relationshipStatus: Joi.string().valid('single', 'in_relationship', 'married', 'separated', 'other').required()
     });
     const { error } = schema.validate(req.body);
     if (error) {
       return res.status(400).json({ error: error.details[0].message });
     }
-    const { username, firstName, lastName, email, password, birthDate, birthTime, birthPlace, gender } = req.body;
+    const { username, firstName, lastName, email, password, birthDate, birthTime, birthPlace, gender, relationshipStatus } = req.body;
     // Email benzersizliği kontrolü
     const existingUser = await User.findOne({ email });
     if (existingUser) {
@@ -165,6 +167,7 @@ app.post('/api/register', async (req, res) => {
       birthTime,
       birthPlace,
       gender,
+      relationshipStatus,
       credits: 10,
       trialRights: { tarot: true, coffee: true, zodiac: true, face: true }
     });
@@ -178,6 +181,7 @@ app.post('/api/register', async (req, res) => {
         lastName,
         email, 
         gender, 
+        relationshipStatus,
         role: user.role, 
         credits: user.credits, 
         trialRights: user.trialRights 
