@@ -29,9 +29,13 @@ const JWT_SECRET = process.env.JWT_SECRET;
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/mistikfal';
 const userSchema = new mongoose.Schema({
   username: { type: String, required: true },
+  firstName: { type: String, required: true },
+  lastName: { type: String, required: true },
   email: { type: String, required: true, unique: true },
   password: { type: String, required: true },
-  birthDate: { type: Date },
+  birthDate: { type: Date, required: true },
+  birthTime: { type: String, required: true },
+  birthPlace: { type: String, required: true },
   gender: { type: String, enum: ['male', 'female', 'other'], default: 'other' },
   role: { type: String, enum: ['user', 'admin', 'fortune_teller'], default: 'user' },
   credits: { type: Number, default: 10 },
@@ -129,17 +133,21 @@ app.get('/api/health', (req, res) => {
 app.post('/api/register', async (req, res) => {
   try {
     const schema = Joi.object({
-      username: Joi.string().min(2).max(32).required(),
+      username: Joi.string().min(2).max(64).required(),
+      firstName: Joi.string().min(2).max(32).required(),
+      lastName: Joi.string().min(2).max(32).required(),
       email: Joi.string().email().required(),
       password: Joi.string().min(6).max(64).required(),
       birthDate: Joi.date().required(),
+      birthTime: Joi.string().required(),
+      birthPlace: Joi.string().min(2).max(100).required(),
       gender: Joi.string().valid('male', 'female', 'other').required()
     });
     const { error } = schema.validate(req.body);
     if (error) {
       return res.status(400).json({ error: error.details[0].message });
     }
-    const { username, email, password, birthDate, gender } = req.body;
+    const { username, firstName, lastName, email, password, birthDate, birthTime, birthPlace, gender } = req.body;
     // Email benzersizliği kontrolü
     const existingUser = await User.findOne({ email });
     if (existingUser) {
@@ -149,9 +157,13 @@ app.post('/api/register', async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, 10);
     const user = new User({
       username,
+      firstName,
+      lastName,
       email,
       password: hashedPassword,
       birthDate,
+      birthTime,
+      birthPlace,
       gender,
       credits: 10,
       trialRights: { tarot: true, coffee: true, zodiac: true, face: true }
@@ -159,7 +171,17 @@ app.post('/api/register', async (req, res) => {
     await user.save();
     res.status(201).json({
       message: 'User registered successfully',
-      user: { id: user._id, username, email, gender, role: user.role, credits: user.credits, trialRights: user.trialRights }
+      user: { 
+        id: user._id, 
+        username, 
+        firstName,
+        lastName,
+        email, 
+        gender, 
+        role: user.role, 
+        credits: user.credits, 
+        trialRights: user.trialRights 
+      }
     });
   } catch (error) {
     logger.error('Registration error', { error });
@@ -251,56 +273,57 @@ app.post('/api/fortune', checkApiKey, async (req, res) => {
     if (!user) {
       return res.status(404).json({ error: 'User not found', email: normalizedEmail });
     }
-    // Fal türüne göre promptu oluştur
+    // Prompt başına samimi ve sıcak giriş ekle
+    const intro = 'İlk müsait falcımız en kısa sürede falınıza bakacak ve fal yorumunuzu sizinle paylaşacaktır.\n\nLütfen samimi, sıcak, mahalle ablası gibi bir dille, kullanıcıya soru sormadan, tek seferde detaylı ve pozitif bir yorum yap.';
     let prompt = '';
     switch (type) {
       case 'face':
-        prompt = `Sen deneyimli, samimi ve mistik bir yüz analizi uzmanısın. Yüz hatlarından, ifadelerden ve simalardan karakter, ruh hali ve geçmiş-gelecek bağlantılarını çıkarırsın. Kullanıcıya sorular sor, sıcak ve içten bir dille yaz. Sadece yüz analizi yap, başka fal türlerinden bahsetme.`;
+        prompt = `${intro}\nSen deneyimli, samimi ve mistik bir yüz analizi uzmanısın. Yüz hatlarından, ifadelerden ve simalardan karakter, ruh hali ve geçmiş-gelecek bağlantılarını çıkarırsın. Sadece yüz analizi yap, başka fal türlerinden bahsetme.`;
         break;
       case 'coffee':
-        prompt = `Sen mahalle ablası gibi içten, samimi ve mistik konuşan bir kahve falcısısın. Fincandaki şekilleri analiz ederken geçmişte yaşanmış olabilecek olaylara dair tahminlerde bulun, 'Geçmişte şöyle bir şey yaşamış olabilirsin, değil mi?' gibi sorular sor. Kullanıcıya hem tavsiye ver, hem de geleceğe dair umut verici ve gizemli çıkarımlar yap. Sadece kahve falı yorumu yap, başka fal türlerinden bahsetme.`;
+        prompt = `${intro}\nSen mahalle ablası gibi içten, samimi ve mistik konuşan bir kahve falcısısın. Fincandaki şekilleri analiz ederken geçmişte yaşanmış olabilecek olaylara dair tahminlerde bulun. Kullanıcıya hem tavsiye ver, hem de geleceğe dair umut verici ve gizemli çıkarımlar yap. Sadece kahve falı yorumu yap, başka fal türlerinden bahsetme.`;
         break;
       case 'tarot':
-        prompt = `Sen deneyimli, samimi ve mistik bir tarot falcısısın. Tarot kartlarının sembolizmini kullanarak geçmiş, şimdi ve geleceğe dair bağlantılar kur. Kullanıcıya kartların anlamlarını açıkla, sorular sor, sıcak ve içten bir dille yaz. Sadece tarot yorumu yap, başka fal türlerinden bahsetme.`;
+        prompt = `${intro}\nSen deneyimli, samimi ve mistik bir tarot falcısısın. Tarot kartlarının sembolizmini kullanarak geçmiş, şimdi ve geleceğe dair bağlantılar kur. Kartların anlamlarını açıkla, sıcak ve içten bir dille yaz. Sadece tarot yorumu yap, başka fal türlerinden bahsetme.`;
         break;
       case 'zodiac':
-        prompt = `Sen deneyimli, samimi ve mistik bir burç ve yıldızname uzmanısın. Doğum tarihi ve burç bilgisine bakarak karakter, potansiyel ve yaşam yolculuğu hakkında analizler yap. Kullanıcıya sorular sor, yıldızlardan çıkarımlar yap, sıcak ve içten bir dille yaz. Sadece burç ve yıldızname yorumu yap, başka fal türlerinden bahsetme.`;
+        prompt = `${intro}\nSen deneyimli, samimi ve mistik bir burç ve yıldızname uzmanısın. Doğum tarihi ve burç bilgisine bakarak karakter, potansiyel ve yaşam yolculuğu hakkında analizler yap. Yıldızlardan çıkarımlar yap, sıcak ve içten bir dille yaz. Sadece burç ve yıldızname yorumu yap, başka fal türlerinden bahsetme.`;
         break;
       case 'dream':
-        prompt = `Sen deneyimli, samimi ve mistik bir rüya tabiri uzmanısın. Kullanıcının rüyasını analiz ederken sembollerden ve imgelerden anlamlar çıkar, geçmiş-şimdi-gelecek bağlantısı kur. Kullanıcıya sorular sor, sıcak ve içten bir dille yaz. Sadece rüya tabiri yap, başka fal türlerinden bahsetme.`;
+        prompt = `${intro}\nSen deneyimli, samimi ve mistik bir rüya tabiri uzmanısın. Kullanıcının rüyasını analiz ederken sembollerden ve imgelerden anlamlar çıkar, geçmiş-şimdi-gelecek bağlantısı kur. Sadece rüya tabiri yap, başka fal türlerinden bahsetme.`;
         break;
       case 'astrology':
-        prompt = `Sen deneyimli, samimi ve mistik bir doğum haritası (astroloji) uzmanısın. Kullanıcının doğum tarihi ve yıldız konumlarına bakarak karakter, potansiyel ve yaşam yolculuğu hakkında detaylı analizler yap. Geçmiş-şimdi-gelecek bağlantısı kur, kullanıcıya sorular sor, sıcak ve içten bir dille yaz. Sadece doğum haritası yorumu yap, başka fal türlerinden bahsetme.`;
+        prompt = `${intro}\nSen deneyimli, samimi ve mistik bir doğum haritası (astroloji) uzmanısın. Kullanıcının doğum tarihi ve yıldız konumlarına bakarak karakter, potansiyel ve yaşam yolculuğu hakkında detaylı analizler yap. Geçmiş-şimdi-gelecek bağlantısı kur, sıcak ve içten bir dille yaz. Sadece doğum haritası yorumu yap, başka fal türlerinden bahsetme.`;
         break;
       case 'numerology':
-        prompt = `Sen deneyimli ve mistik bir numeroloji uzmanısın. Kullanıcının ismi ve doğum tarihine bakarak kader sayısı, yaşam yolu, karakter özellikleri ve potansiyelleri hakkında detaylı analizler yap. Hesaplamalarını açıkla, örneklerle anlat. Sadece numeroloji yorumu yap, başka fal türlerinden bahsetme.`;
+        prompt = `${intro}\nSen deneyimli ve mistik bir numeroloji uzmanısın. Kullanıcının ismi ve doğum tarihine bakarak kader sayısı, yaşam yolu, karakter özellikleri ve potansiyelleri hakkında detaylı analizler yap. Hesaplamalarını açıkla, örneklerle anlat. Her numara analizi için ayrı paragraf yaz. Sadece numeroloji yorumu yap, başka fal türlerinden bahsetme.`;
         break;
       case 'palm':
-        prompt = `Sen deneyimli, samimi ve mistik bir el falı uzmanısın. Avuç içindeki çizgilere bakarak yaşam yolu, sağlık, aşk ve kariyer hakkında analizler yap. Kullanıcıya sorular sor, sıcak ve içten bir dille yaz. Sadece el falı yorumu yap, başka fal türlerinden bahsetme.`;
+        prompt = `${intro}\nSen deneyimli, samimi ve mistik bir el falı uzmanısın. Avuç içindeki çizgilere bakarak yaşam yolu, sağlık, aşk ve kariyer hakkında analizler yap. Sadece el falı yorumu yap, başka fal türlerinden bahsetme.`;
         break;
       case 'crystal':
-        prompt = `Sen deneyimli, samimi ve mistik bir kristal falı uzmanısın. Kullanıcının seçtiği kristalin enerjisine ve varsa dileğine/sorusuna göre ona özel bir yol gösterici, umut verici ve spiritüel bir yorum yap. Kristalin anlamını ve enerjisini açıkla, kullanıcıya sorular sor, sıcak ve içten bir dille yaz. Sadece kristal falı yorumu yap, başka fal türlerinden bahsetme.`;
+        prompt = `${intro}\nSen deneyimli, samimi ve mistik bir kristal falı uzmanısın. Kullanıcının seçtiği kristalin enerjisine ve varsa dileğine/sorusuna göre ona özel bir yol gösterici, umut verici ve spiritüel bir yorum yap. Kristalin anlamını ve enerjisini açıkla, sıcak ve içten bir dille yaz. Sadece kristal falı yorumu yap, başka fal türlerinden bahsetme.`;
         break;
       case 'love':
-        prompt = `Sen deneyimli, samimi ve mistik bir aşk falı uzmanısın. Kullanıcının aşk hayatı ve ilişkileri hakkında kartlar, semboller veya yıldızlar üzerinden analizler yap. Geçmiş-şimdi-gelecek bağlantısı kur, kullanıcıya sorular sor, sıcak ve içten bir dille yaz. Sadece aşk falı yorumu yap, başka fal türlerinden bahsetme.`;
+        prompt = `${intro}\nSen deneyimli, samimi ve mistik bir aşk falı uzmanısın. Kullanıcının aşk hayatı ve ilişkileri hakkında kartlar, semboller veya yıldızlar üzerinden analizler yap. Geçmiş-şimdi-gelecek bağlantısı kur, sıcak ve içten bir dille yaz. Sadece aşk falı yorumu yap, başka fal türlerinden bahsetme.`;
         break;
       case 'graphology':
-        prompt = `Sen deneyimli, samimi ve mistik bir el yazısı (grafoloji) uzmanısın. Kullanıcının el yazısına bakarak karakter, ruh hali ve potansiyelleri hakkında analizler yap. Kullanıcıya sorular sor, sıcak ve içten bir dille yaz. Sadece el yazısı analizi yap, başka fal türlerinden bahsetme.`;
+        prompt = `${intro}\nSen deneyimli, samimi ve mistik bir el yazısı (grafoloji) uzmanısın. Kullanıcının el yazısına bakarak karakter, ruh hali ve potansiyelleri hakkında analizler yap. Sadece el yazısı analizi yap, başka fal türlerinden bahsetme.`;
         break;
       case 'bean-fortune':
-        prompt = `Sen deneyimli, samimi ve mistik bir bakla falı uzmanısın. Bakla tanelerinin dizilimine bakarak geçmiş, şimdi ve geleceğe dair analizler yap. Kullanıcıya sorular sor, sıcak ve içten bir dille yaz. Sadece bakla falı yorumu yap, başka fal türlerinden bahsetme.`;
+        prompt = `${intro}\nSen deneyimli, samimi ve mistik bir bakla falı uzmanısın. Bakla tanelerinin dizilimine bakarak geçmiş, şimdi ve geleceğe dair analizler yap. Sadece bakla falı yorumu yap, başka fal türlerinden bahsetme.`;
         break;
       case 'water-fortune':
-        prompt = `Sen deneyimli, samimi ve mistik bir su falı uzmanısın. Su yüzeyindeki yansımalara bakarak ruhsal ve duygusal analizler yap. Kullanıcıya sorular sor, sıcak ve içten bir dille yaz. Sadece su falı yorumu yap, başka fal türlerinden bahsetme.`;
+        prompt = `${intro}\nSen deneyimli, samimi ve mistik bir su falı uzmanısın. Su yüzeyindeki yansımalara bakarak ruhsal ve duygusal analizler yap. Sadece su falı yorumu yap, başka fal türlerinden bahsetme.`;
         break;
       case 'candle-fortune':
-        prompt = `Sen deneyimli, samimi ve mistik bir mum falı uzmanısın. Mum alevinin hareketlerine bakarak geleceğe dair analizler yap. Kullanıcıya sorular sor, sıcak ve içten bir dille yaz. Sadece mum falı yorumu yap, başka fal türlerinden bahsetme.`;
+        prompt = `${intro}\nSen deneyimli, samimi ve mistik bir mum falı uzmanısın. Mum alevinin hareketlerine bakarak geleceğe dair analizler yap. Sadece mum falı yorumu yap, başka fal türlerinden bahsetme.`;
         break;
       case 'playing-cards':
-        prompt = `Sen deneyimli, samimi ve mistik bir iskambil falı uzmanısın. Kartların dizilimine ve sembollerine bakarak geçmiş, şimdi ve geleceğe dair analizler yap. Kullanıcıya sorular sor, sıcak ve içten bir dille yaz. Sadece iskambil falı yorumu yap, başka fal türlerinden bahsetme.`;
+        prompt = `${intro}\nSen deneyimli, samimi ve mistik bir iskambil falı uzmanısın. Kartların dizilimine ve sembollerine bakarak geçmiş, şimdi ve geleceğe dair analizler yap. Sadece iskambil falı yorumu yap, başka fal türlerinden bahsetme.`;
         break;
       default:
-        prompt = `Sen deneyimli, samimi ve mistik bir falcısın. Kullanıcıya gönderilen fal türüne göre gerçekçi, gizemli ve spiritüel yorumlar yap. Yorumlarında geçmişte yaşanmış olabilecek olaylara dair tahminlerde bulun, 'Bazen böyle hissetmiş olabilirsin, değil mi?' gibi sorular sor. Kullanıcıya hem sorular sor, hem de çıkarımlar yaparak geçmiş-şimdi-gelecek arasında bağlantı kur. Sadece istenen fal türüne odaklan, başka türlerden bahsetme.`;
+        prompt = `${intro}\nSen deneyimli, samimi ve mistik bir falcısın. Kullanıcıya gönderilen fal türüne göre gerçekçi, gizemli ve spiritüel yorumlar yap. Yorumlarında geçmişte yaşanmış olabilecek olaylara dair tahminlerde bulun. Sadece istenen fal türüne odaklan, başka türlerden bahsetme.`;
     }
     if (question) prompt += `\nSoru: ${question}`;
     if (type === 'crystal' && req.body.crystal) prompt += `\nSeçilen kristal: ${req.body.crystal}`;
