@@ -662,6 +662,19 @@ app.delete('/api/user/readings/:id', authenticateJWT, async (req, res) => {
   }
 });
 
+// Kullanıcının tüm geçmiş fallarını sil (bildirimleri temizle)
+app.delete('/api/user/readings', authenticateJWT, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    user.pastReadings = [];
+    await user.save();
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: 'Bildirimler silinemedi.' });
+  }
+});
+
 // Error handling middleware
 app.use((error, req, res, next) => {
   console.error('Unhandled error:', error);
