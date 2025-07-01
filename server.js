@@ -654,6 +654,34 @@ app.put('/api/profile', authenticateJWT, async (req, res) => {
   }
 });
 
+// Kullanıcı profilini getirme endpointi (JWT ile korumalı)
+app.get('/api/profile', authenticateJWT, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    res.json({
+      user: {
+        id: user._id,
+        username: user.username,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        email: user.email,
+        birthDate: user.birthDate,
+        birthTime: user.birthTime,
+        birthPlace: user.birthPlace,
+        gender: user.gender,
+        relationshipStatus: user.relationshipStatus,
+        credits: user.credits,
+        trialRights: user.trialRights,
+        role: user.role,
+        createdAt: user.createdAt
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Admin endpoint: Tüm kullanıcıları ve istatistikleri döndür
 app.get('/api/admin/users', authenticateJWT, async (req, res) => {
   try {
