@@ -18,12 +18,70 @@ const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const cookieParser = require('cookie-parser');
 const mongoSanitize = require('express-mongo-sanitize');
 const morgan = require('morgan');
+const http = require('http');
+const socketIo = require('socket.io');
 
 const app = express();
-app.set('trust proxy', 1); // Render ve benzeri platformlar için gerekli
+const server = http.createServer(app);
+const io = socketIo(server, {
+  cors: {
+    origin: process.env.NODE_ENV === 'production' ? 'https://couva.de' : ['http://localhost:5173', 'http://localhost:3000'],
+    credentials: true
+  }
+});
+
+app.set('trust proxy', 1);
 const PORT = process.env.PORT || 3020;
 
 const JWT_SECRET = process.env.JWT_SECRET;
+
+// Socket.io kullanıcı bağlantılarını saklamak için
+const connectedUsers = new Map(); // userId -> socketId
+
+// Socket.io bağlantı yönetimi
+io.on('connection', (socket) => {
+  console.log('Yeni socket bağlantısı:', socket.id);
+
+  // Kullanıcı authentication
+  socket.on('authenticate', async (token) => {
+    try {
+      const decoded = jwt.verify(token, JWT_SECRET);
+      const userId = decoded.id;
+      
+      // Kullanıcıyı bağlantı listesine ekle
+      connectedUsers.set(userId, socket.id);
+      socket.userId = userId;
+      
+      console.log(`Kullanıcı ${userId} socket ${socket.id} ile bağlandı`);
+      
+      socket.emit('authenticated', { success: true });
+    } catch (error) {
+      console.error('Socket authentication hatası:', error);
+      socket.emit('authenticated', { success: false, error: 'Invalid token' });
+    }
+  });
+
+  // Bağlantı koptuğunda
+  socket.on('disconnect', () => {
+    if (socket.userId) {
+      connectedUsers.delete(socket.userId);
+      console.log(`Kullanıcı ${socket.userId} bağlantısı koptu`);
+    }
+    console.log('Socket bağlantısı koptu:', socket.id);
+  });
+});
+
+// Notification gönderme fonksiyonu
+const sendNotification = (userId, notification) => {
+  const socketId = connectedUsers.get(userId);
+  if (socketId) {
+    io.to(socketId).emit('newNotification', notification);
+    console.log(`Notification gönderildi: ${userId} -> ${socketId}`);
+    return true;
+  }
+  console.log(`Kullanıcı ${userId} çevrimiçi değil, notification gönderilemedi`);
+  return false;
+};
 
 // MongoDB bağlantısı ve User modeli en başa taşındı
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/mistikfal';
@@ -77,7 +135,7 @@ function authenticateJWT(req, res, next) {
 
 // SADECE https://couva.de adresine izin verilecek şekilde CORS ayarı
 const corsOptions = {
-  origin: 'https://couva.de', // Sadece bu domain izinli
+  origin: process.env.NODE_ENV === 'production' ? 'https://couva.de' : ['http://localhost:5173', 'http://localhost:3000'],
   credentials: true,
   allowedHeaders: ['Content-Type', 'Authorization']
 };
@@ -367,7 +425,7 @@ app.post('/api/fortune', checkApiKey, async (req, res) => {
       const text = await response.text();
       console.log('MODEL ÇIKTISI:', text);
       fs.appendFileSync('model-logs.txt', JSON.stringify({ date: new Date(), type, userEmail, prompt, response: text }) + '\n');
-      user.pastReadings.unshift({
+      const newReading = {
         id: Date.now(),
         date: new Date(),
         type,
@@ -375,7 +433,19 @@ app.post('/api/fortune', checkApiKey, async (req, res) => {
           title: type.charAt(0).toUpperCase() + type.slice(1) + ' Falı',
           reading: text
         }
-      });
+      };
+      user.pastReadings.unshift(newReading);
+      
+      // Real-time notification gönder
+      const notification = {
+        id: newReading.id,
+        type: 'fortune_result',
+        title: `${type.charAt(0).toUpperCase() + type.slice(1)} Falı Sonucu`,
+        message: `${type.charAt(0).toUpperCase() + type.slice(1)} falınız hazır!`,
+        timestamp: new Date().toISOString()
+      };
+      sendNotification(user._id, notification);
+      
       res.json({
         fortune: text,
         type,
@@ -441,25 +511,37 @@ app.post('/api/fortune', checkApiKey, async (req, res) => {
     const text = await response.text();
     console.log('MODEL ÇIKTISI:', text);
     fs.appendFileSync('model-logs.txt', JSON.stringify({ date: new Date(), type, userEmail, prompt, response: text }) + '\n');
-    user.pastReadings.unshift({
-      id: Date.now(),
-      date: new Date(),
-      type,
-      result: {
-        title: type.charAt(0).toUpperCase() + type.slice(1) + ' Falı',
-        reading: text
-      }
-    });
-    res.json({
-      fortune: text,
-      type,
-      creditsRemaining: user.credits,
-      creditsUsed: creditCost,
-      trialUsed: false,
-      trialRights: user.trialRights,
-      hasImage: hasImageData,
-      timestamp: new Date().toISOString()
-    });
+          const newReading = {
+        id: Date.now(),
+        date: new Date(),
+        type,
+        result: {
+          title: type.charAt(0).toUpperCase() + type.slice(1) + ' Falı',
+          reading: text
+        }
+      };
+      user.pastReadings.unshift(newReading);
+      
+      // Real-time notification gönder
+      const notification = {
+        id: newReading.id,
+        type: 'fortune_result',
+        title: `${type.charAt(0).toUpperCase() + type.slice(1)} Falı Sonucu`,
+        message: `${type.charAt(0).toUpperCase() + type.slice(1)} falınız hazır!`,
+        timestamp: new Date().toISOString()
+      };
+      sendNotification(user._id, notification);
+      
+      res.json({
+        fortune: text,
+        type,
+        creditsRemaining: user.credits,
+        creditsUsed: creditCost,
+        trialUsed: false,
+        trialRights: user.trialRights,
+        hasImage: hasImageData,
+        timestamp: new Date().toISOString()
+      });
   } catch (error) {
     console.error('Fortune API error:', error);
     const { userEmail } = req.body;
@@ -511,14 +593,25 @@ app.post('/api/horoscope', authenticateJWT, async (req, res) => {
     // Geçmiş fallara kaydet
     const user = await User.findById(req.user.id);
     if (user) {
-      user.pastReadings.unshift({
+      const newReading = {
         id: Date.now(),
         title: 'Günlük Burç Yorumu',
         reading: text,
         type: 'daily-horoscope',
         date: new Date(),
-      });
+      };
+      user.pastReadings.unshift(newReading);
       await user.save();
+      
+      // Real-time notification gönder
+      const notification = {
+        id: newReading.id,
+        type: 'horoscope_result',
+        title: 'Günlük Burç Yorumu',
+        message: `${sign.charAt(0).toUpperCase() + sign.slice(1)} burcu günlük yorumunuz hazır!`,
+        timestamp: new Date().toISOString()
+      };
+      sendNotification(user._id, notification);
     }
     res.json({ horoscope: text });
   } catch (error) {
@@ -616,6 +709,34 @@ app.get('/api/debug/users', async (req, res) => {
   const users = await User.find({});
   res.json(users);
 });
+
+// Test notification endpoint (sadece development'ta)
+if (process.env.NODE_ENV !== 'production') {
+  app.post('/api/test-notification', authenticateJWT, async (req, res) => {
+    try {
+      const user = await User.findById(req.user.id);
+      if (!user) return res.status(404).json({ error: 'User not found' });
+      
+      const notification = {
+        id: Date.now(),
+        type: 'test',
+        title: 'Test Bildirimi',
+        message: 'Bu bir test bildirimidir!',
+        timestamp: new Date().toISOString()
+      };
+      
+      const sent = sendNotification(user._id, notification);
+      res.json({ 
+        success: true, 
+        notification, 
+        sent,
+        connectedUsers: Array.from(connectedUsers.keys())
+      });
+    } catch (error) {
+      res.status(500).json({ error: 'Test notification hatası' });
+    }
+  });
+}
 
 // Kullanıcıya geçmiş fal ekleme (JWT ile korumalı)
 app.post('/api/user/add-reading', authenticateJWT, async (req, res) => {
@@ -742,9 +863,10 @@ if (process.env.NODE_ENV === 'production') {
   });
 }
 
-app.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log(`🚀 Fortune Backend running on port ${PORT}`);
   console.log(`📡 Health check: http://localhost:${PORT}/api/health`);
   console.log(`🔑 Gemini API Key configured: ${process.env.GEMINI_API_KEY ? 'Yes' : 'No'}`);
   console.log(`🖼️  Image support: Enabled (Gemini Vision)`);
-}); 
+  console.log(`🔌 WebSocket server: Ready for real-time notifications`);
+});
