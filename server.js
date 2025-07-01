@@ -234,17 +234,20 @@ app.post('/api/register', async (req, res) => {
     await user.save();
     res.status(201).json({
       message: 'User registered successfully',
-      user: { 
-        id: user._id, 
-        username, 
+      user: {
+        id: user._id,
+        username,
         firstName,
         lastName,
-        email, 
-        gender, 
+        email,
+        gender,
         relationshipStatus,
-        role: user.role, 
-        credits: user.credits, 
-        trialRights: user.trialRights 
+        role: user.role,
+        credits: user.credits,
+        trialRights: user.trialRights,
+        birthDate: user.birthDate,
+        birthTime: user.birthTime,
+        birthPlace: user.birthPlace
       }
     });
   } catch (error) {
@@ -282,11 +285,17 @@ app.post('/api/login', async (req, res) => {
       user: {
         id: user._id,
         username: user.username,
+        firstName: user.firstName,
+        lastName: user.lastName,
         email: user.email,
         gender: user.gender,
+        relationshipStatus: user.relationshipStatus,
         role: user.role,
         credits: user.credits,
-        trialRights: user.trialRights
+        trialRights: user.trialRights,
+        birthDate: user.birthDate,
+        birthTime: user.birthTime,
+        birthPlace: user.birthPlace
       }
     });
   } catch (error) {
