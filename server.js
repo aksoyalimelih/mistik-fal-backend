@@ -135,7 +135,7 @@ function authenticateJWT(req, res, next) {
 
 // SADECE https://couva.de adresine izin verilecek şekilde CORS ayarı
 const corsOptions = {
-  origin: process.env.NODE_ENV === 'production' ? 'https://couva.de' : ['http://localhost:5173', 'http://localhost:3000'],
+  origin: 'https://couva.de',
   credentials: true,
   allowedHeaders: ['Content-Type', 'Authorization']
 };
