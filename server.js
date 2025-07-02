@@ -333,43 +333,6 @@ const logger = winston.createLogger({
   ]
 });
 
-// SADECE günlük burç yorumu endpointini en üste taşı
-app.post('/api/horoscope', authenticateJWT, async (req, res) => {
-  const { sign, day } = req.body;
-  try {
-    const prompt = `Bugün için ${sign.charAt(0).toUpperCase() + sign.slice(1)} burcuna özel kısa, özgün ve pozitif bir günlük burç yorumu hazırla. (Tarih: ${new Date().toLocaleDateString()} - ${Math.random()})`;
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const text = await response.text();
-    // Geçmiş fallara kaydet
-    const user = await User.findById(req.user.id);
-    if (user) {
-      const newReading = {
-        id: Date.now(),
-        title: 'Günlük Burç Yorumu',
-        reading: text,
-        type: 'daily-horoscope',
-        date: new Date(),
-      };
-      user.pastReadings.unshift(newReading);
-      await user.save();
-      // Real-time notification gönder
-      const notification = {
-        id: newReading.id,
-        type: 'horoscope_result',
-        title: 'Günlük Burç Yorumu',
-        message: `${sign.charAt(0).toUpperCase() + sign.slice(1)} burcu günlük yorumunuz hazır!`,
-        timestamp: new Date().toISOString()
-      };
-      sendNotification(user._id, notification);
-    }
-    res.json({ horoscope: text });
-  } catch (error) {
-    res.status(500).json({ error: 'Gemini API hatası', details: error.message });
-  }
-});
-
 // Fortune telling endpoint with image support
 app.post('/api/fortune', checkApiKey, async (req, res) => {
   try {
@@ -626,6 +589,193 @@ app.post('/api/user/:email/add-credits', async (req, res) => {
   }
 });
 
+// Aztro API endpoint yerine Gemini ile burç yorumu
+app.post('/api/horoscope', authenticateJWT, async (req, res) => {
+  const { sign, day } = req.body;
+  // sign: 'koc', 'boga', ...
+  try {
+    const prompt = `Bugün için ${sign.charAt(0).toUpperCase() + sign.slice(1)} burcuna özel kısa, özgün ve pozitif bir günlük burç yorumu hazırla. (Tarih: ${new Date().toLocaleDateString()} - ${Math.random()})`;
+    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    const text = await response.text();
+    // Geçmiş fallara kaydet
+    const user = await User.findById(req.user.id);
+    if (user) {
+      const newReading = {
+        id: Date.now(),
+        title: 'Günlük Burç Yorumu',
+        reading: text,
+        type: 'daily-horoscope',
+        date: new Date(),
+      };
+      user.pastReadings.unshift(newReading);
+      await user.save();
+      
+      // Real-time notification gönder
+      const notification = {
+        id: newReading.id,
+        type: 'horoscope_result',
+        title: 'Günlük Burç Yorumu',
+        message: `${sign.charAt(0).toUpperCase() + sign.slice(1)} burcu günlük yorumunuz hazır!`,
+        timestamp: new Date().toISOString()
+      };
+      sendNotification(user._id, notification);
+    }
+    res.json({ horoscope: text });
+  } catch (error) {
+    res.status(500).json({ error: 'Gemini API hatası', details: error.message });
+  }
+});
+
+// Kullanıcı profilini güncelleme endpointi (JWT ile korumalı)
+app.put('/api/profile', authenticateJWT, async (req, res) => {
+  try {
+    const schema = Joi.object({
+      firstName: Joi.string().min(2).max(32),
+      lastName: Joi.string().min(2).max(32),
+      email: Joi.string().email(),
+      birthDate: Joi.date(),
+      birthTime: Joi.string(),
+      birthPlace: Joi.string().min(2).max(100),
+      gender: Joi.string().valid('male', 'female', 'other'),
+      relationshipStatus: Joi.string().valid('single', 'in_relationship', 'married', 'separated', 'other')
+    });
+    const { error } = schema.validate(req.body);
+    if (error) {
+      return res.status(400).json({ error: error.details[0].message });
+    }
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    if (req.body.firstName) user.firstName = req.body.firstName;
+    if (req.body.lastName) user.lastName = req.body.lastName;
+    if (req.body.email) user.email = req.body.email;
+    if (req.body.birthDate) user.birthDate = req.body.birthDate;
+    if (req.body.birthTime) user.birthTime = req.body.birthTime;
+    if (req.body.birthPlace) user.birthPlace = req.body.birthPlace;
+    if (req.body.gender) user.gender = req.body.gender;
+    if (req.body.relationshipStatus) user.relationshipStatus = req.body.relationshipStatus;
+    await user.save();
+    res.json({ message: 'Profil güncellendi', user });
+  } catch (error) {
+    logger.error('Profile update error', { error });
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Kullanıcı profilini getirme endpointi (JWT ile korumalı)
+app.get('/api/profile', authenticateJWT, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    res.json({
+      user: {
+        id: user._id,
+        username: user.username,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        email: user.email,
+        birthDate: user.birthDate,
+        birthTime: user.birthTime,
+        birthPlace: user.birthPlace,
+        gender: user.gender,
+        relationshipStatus: user.relationshipStatus,
+        credits: user.credits,
+        trialRights: user.trialRights,
+        role: user.role,
+        createdAt: user.createdAt
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Admin endpoint: Tüm kullanıcıları ve istatistikleri döndür
+app.get('/api/admin/users', authenticateJWT, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+    if (!user || user.role !== 'admin') {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    
+    const users = await User.find({}).select('-password');
+    const totalUsers = users.length;
+    const totalCredits = users.reduce((sum, user) => sum + user.credits, 0);
+    
+    res.json({
+      users,
+      stats: {
+        totalUsers,
+        totalCredits,
+        averageCredits: totalUsers > 0 ? Math.round(totalCredits / totalUsers) : 0
+      }
+    });
+  } catch (error) {
+    console.error('Admin users error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Falcı endpoint: Kendi müşterilerini görüntüle
+app.get('/api/fortune-teller/customers', authenticateJWT, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+    if (!user || user.role !== 'fortune_teller') {
+      return res.status(403).json({ error: 'Fortune teller access required' });
+    }
+    
+    // Falcının müşterilerini getir (şimdilik tüm kullanıcılar)
+    const customers = await User.find({ role: 'user' }).select('-password');
+    
+    res.json({
+      customers,
+      stats: {
+        totalCustomers: customers.length,
+        activeCustomers: customers.filter(c => c.credits > 0).length
+      }
+    });
+  } catch (error) {
+    console.error('Fortune teller customers error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Debug endpoint: Tüm kullanıcıları döndür
+app.get('/api/debug/users', async (req, res) => {
+  const users = await User.find({});
+  res.json(users);
+});
+
+// Test notification endpoint (sadece development'ta)
+if (process.env.NODE_ENV !== 'production') {
+  app.post('/api/test-notification', authenticateJWT, async (req, res) => {
+    try {
+      const user = await User.findById(req.user.id);
+      if (!user) return res.status(404).json({ error: 'User not found' });
+      
+      const notification = {
+        id: Date.now(),
+        type: 'test',
+        title: 'Test Bildirimi',
+        message: 'Bu bir test bildirimidir!',
+        timestamp: new Date().toISOString()
+      };
+      
+      const sent = sendNotification(user._id, notification);
+      res.json({ 
+        success: true, 
+        notification, 
+        sent,
+        connectedUsers: Array.from(connectedUsers.keys())
+      });
+    } catch (error) {
+      res.status(500).json({ error: 'Test notification hatası' });
+    }
+  });
+}
+
+// Kullanıcıya geçmiş fal ekleme (JWT ile korumalı)
 app.post('/api/user/add-reading', authenticateJWT, async (req, res) => {
   try {
     const user = await User.findById(req.user.id);
@@ -641,18 +791,53 @@ app.post('/api/user/add-reading', authenticateJWT, async (req, res) => {
   }
 });
 
-// 4. 404 handler EN SONDA
-app.use('*', (req, res) => {
-  res.status(404).json({ error: 'Endpoint not found' });
+// Kullanıcının geçmiş fallarını çekme (JWT ile korumalı)
+app.get('/api/user/readings', authenticateJWT, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    res.json({ pastReadings: user.pastReadings || [] });
+  } catch (error) {
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
-app.use(xss());
-app.use(hpp());
+// Kullanıcının geçmiş bir falını silme (JWT ile korumalı)
+app.delete('/api/user/readings/:id', authenticateJWT, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    const readingId = req.params.id;
+    const before = user.pastReadings.length;
+    user.pastReadings = user.pastReadings.filter(r => String(r.id) !== String(readingId));
+    if (user.pastReadings.length === before) {
+      return res.status(404).json({ error: 'Reading not found' });
+    }
+    await user.save();
+    res.json({ message: 'Reading deleted', pastReadings: user.pastReadings });
+  } catch (error) {
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
 
-if (process.env.NODE_ENV !== 'production') {
-  app.use(morgan('dev'));
-}
-app.use(mongoSanitize());
+// Kullanıcının tüm geçmiş fallarını sil (bildirimleri temizle)
+app.delete('/api/user/readings', authenticateJWT, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    user.pastReadings = [];
+    await user.save();
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: 'Bildirimler silinemedi.' });
+  }
+});
+
+// Error handling middleware
+app.use((error, req, res, next) => {
+  console.error('Unhandled error:', error);
+  res.status(500).json({ error: 'Internal server error' });
+});
 
 // Passport Google Strategy
 passport.use(new GoogleStrategy({
@@ -687,6 +872,33 @@ app.get('/api/auth/google/callback', passport.authenticate('google', { session: 
   // Frontend'e token ile yönlendir (örnek: /auth/social?token=...)
   res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:5173'}/auth/social?token=${token}`);
 });
+
+// 404 handler (en sonda olmalı!)
+app.use('*', (req, res) => {
+  res.status(404).json({ error: 'Endpoint not found' });
+});
+
+app.use(xss());
+app.use(hpp());
+
+if (process.env.NODE_ENV !== 'production') {
+  app.use(morgan('dev'));
+}
+app.use(mongoSanitize());
+
+// API routes
+app.use('/api', require('./routes/api'));
+
+// Sadece production'da frontend'i serve et
+if (process.env.NODE_ENV === 'production') {
+  const path = require('path');
+  app.use(express.static(path.join(__dirname, '../public_html')));
+  app.get('*', (req, res) => {
+    // Eğer istek /api ile başlıyorsa, next() ile Express route'larına git
+    if (req.path.startsWith('/api')) return res.status(404).json({ error: 'API endpoint not found' });
+    res.sendFile(path.join(__dirname, '../public_html', 'index.html'));
+  });
+}
 
 server.listen(PORT, () => {
   console.log(`🚀 Fortune Backend running on port ${PORT}`);
