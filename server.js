@@ -492,7 +492,8 @@ app.post('/api/fortune', checkApiKey, async (req, res) => {
       'candle-fortune': 3,
       'playing-cards': 4,
       zodiac: 2,
-      face: 7
+      face: 7,
+      'daily-horoscope': 2
     };
     
     const creditCost = creditCosts[type] || 1;
