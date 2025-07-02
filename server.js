@@ -25,7 +25,7 @@ const app = express();
 const server = http.createServer(app);
 const io = socketIo(server, {
   cors: {
-    origin: process.env.NODE_ENV === 'production' ? 'https://couva.de' : ['http://localhost:5173', 'http://localhost:3000'],
+    origin: 'https://couva.de',
     credentials: true
   }
 });
@@ -414,9 +414,9 @@ app.post('/api/fortune', checkApiKey, async (req, res) => {
     const hasImageData = hasImage(imageData);
     const modelName = "gemini-1.5-flash";
     const model = genAI.getGenerativeModel({ model: modelName });
-    console.log('MODELE GİDEN PROMPT:', prompt);
+    console.log(`MODELE GİDEN PROMPT:`, prompt);
     if (hasImageData) {
-      console.log('GÖNDERİLEN RESİM VAR (base64 uzunluğu):', imageData.length);
+      console.log(`GÖNDERİLEN RESİM VAR (base64 uzunluğu):`, imageData.length);
     }
     fs.appendFileSync('model-logs.txt', JSON.stringify({ date: new Date(), type, userEmail, prompt, hasImageData, imageLength: imageData ? imageData.length : 0 }) + '\n');
     // Önce deneme hakkı kontrolü
@@ -432,7 +432,7 @@ app.post('/api/fortune', checkApiKey, async (req, res) => {
       }
       const response = await result.response;
       const text = await response.text();
-      console.log('MODEL ÇIKTISI:', text);
+      console.log(`MODEL ÇIKTISI:`, text);
       fs.appendFileSync('model-logs.txt', JSON.stringify({ date: new Date(), type, userEmail, prompt, response: text }) + '\n');
       const newReading = {
         id: Date.now(),
@@ -492,8 +492,7 @@ app.post('/api/fortune', checkApiKey, async (req, res) => {
       'candle-fortune': 3,
       'playing-cards': 4,
       zodiac: 2,
-      face: 7,
-      'daily-horoscope': 2
+      face: 7
     };
     
     const creditCost = creditCosts[type] || 1;
@@ -519,7 +518,7 @@ app.post('/api/fortune', checkApiKey, async (req, res) => {
     }
     const response = await result.response;
     const text = await response.text();
-    console.log('MODEL ÇIKTISI:', text);
+    console.log(`MODEL ÇIKTISI:`, text);
     fs.appendFileSync('model-logs.txt', JSON.stringify({ date: new Date(), type, userEmail, prompt, response: text }) + '\n');
           const newReading = {
         id: Date.now(),
