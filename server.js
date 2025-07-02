@@ -388,6 +388,7 @@ app.post('/api/fortune', checkApiKey, async (req, res) => {
         }
       };
       user.pastReadings.unshift(newReading);
+      await user.save();
       
       res.json({
         fortune: text,
@@ -454,27 +455,28 @@ app.post('/api/fortune', checkApiKey, async (req, res) => {
     const text = await response.text();
     console.log(`MODEL ÇIKTISI:`, text);
     fs.appendFileSync('model-logs.txt', JSON.stringify({ date: new Date(), type, userEmail, prompt, response: text }) + '\n');
-          const newReading = {
-        id: Date.now(),
-        date: new Date(),
-        type,
-        result: {
-          title: type.charAt(0).toUpperCase() + type.slice(1) + ' Falı',
-          reading: text
-        }
-      };
-      user.pastReadings.unshift(newReading);
-      
-      res.json({
-        fortune: text,
-        type,
-        creditsRemaining: user.credits,
-        creditsUsed: creditCost,
-        trialUsed: false,
-        trialRights: user.trialRights,
-        hasImage: hasImageData,
-        timestamp: new Date().toISOString()
-      });
+    const newReading = {
+      id: Date.now(),
+      date: new Date(),
+      type,
+      result: {
+        title: type.charAt(0).toUpperCase() + type.slice(1) + ' Falı',
+        reading: text
+      }
+    };
+    user.pastReadings.unshift(newReading);
+    await user.save();
+    
+    res.json({
+      fortune: text,
+      type,
+      creditsRemaining: user.credits,
+      creditsUsed: creditCost,
+      trialUsed: false,
+      trialRights: user.trialRights,
+      hasImage: hasImageData,
+      timestamp: new Date().toISOString()
+    });
   } catch (error) {
     console.error('Fortune API error:', error);
     const { userEmail } = req.body;
