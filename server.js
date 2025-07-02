@@ -333,6 +333,43 @@ const logger = winston.createLogger({
   ]
 });
 
+// SADECE günlük burç yorumu endpointini en üste taşı
+app.post('/api/horoscope', authenticateJWT, async (req, res) => {
+  const { sign, day } = req.body;
+  try {
+    const prompt = `Bugün için ${sign.charAt(0).toUpperCase() + sign.slice(1)} burcuna özel kısa, özgün ve pozitif bir günlük burç yorumu hazırla. (Tarih: ${new Date().toLocaleDateString()} - ${Math.random()})`;
+    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    const text = await response.text();
+    // Geçmiş fallara kaydet
+    const user = await User.findById(req.user.id);
+    if (user) {
+      const newReading = {
+        id: Date.now(),
+        title: 'Günlük Burç Yorumu',
+        reading: text,
+        type: 'daily-horoscope',
+        date: new Date(),
+      };
+      user.pastReadings.unshift(newReading);
+      await user.save();
+      // Real-time notification gönder
+      const notification = {
+        id: newReading.id,
+        type: 'horoscope_result',
+        title: 'Günlük Burç Yorumu',
+        message: `${sign.charAt(0).toUpperCase() + sign.slice(1)} burcu günlük yorumunuz hazır!`,
+        timestamp: new Date().toISOString()
+      };
+      sendNotification(user._id, notification);
+    }
+    res.json({ horoscope: text });
+  } catch (error) {
+    res.status(500).json({ error: 'Gemini API hatası', details: error.message });
+  }
+});
+
 // Fortune telling endpoint with image support
 app.post('/api/fortune', checkApiKey, async (req, res) => {
   try {
@@ -589,48 +626,6 @@ app.post('/api/user/:email/add-credits', async (req, res) => {
   }
 });
 
-// Aztro API endpoint yerine Gemini ile burç yorumu
-app.post('/api/horoscope', authenticateJWT, async (req, res) => {
-  const { sign, day } = req.body;
-  try {
-    const prompt = `Bugün için ${sign.charAt(0).toUpperCase() + sign.slice(1)} burcuna özel kısa, özgün ve pozitif bir günlük burç yorumu hazırla. (Tarih: ${new Date().toLocaleDateString()} - ${Math.random()})`;
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const text = await response.text();
-    // Geçmiş fallara kaydet
-    const user = await User.findById(req.user.id);
-    if (user) {
-      const newReading = {
-        id: Date.now(),
-        title: 'Günlük Burç Yorumu',
-        reading: text,
-        type: 'daily-horoscope',
-        date: new Date(),
-      };
-      user.pastReadings.unshift(newReading);
-      await user.save();
-      // Real-time notification gönder
-      const notification = {
-        id: newReading.id,
-        type: 'horoscope_result',
-        title: 'Günlük Burç Yorumu',
-        message: `${sign.charAt(0).toUpperCase() + sign.slice(1)} burcu günlük yorumunuz hazır!`,
-        timestamp: new Date().toISOString()
-      };
-      sendNotification(user._id, notification);
-    }
-    res.json({ horoscope: text });
-  } catch (error) {
-    res.status(500).json({ error: 'Gemini API hatası', details: error.message });
-  }
-});
-
-// 1. Özel route'lar (EN ÜSTE AL)
-app.post('/api/horoscope', authenticateJWT, async (req, res) => {
-  // ... mevcut kod ...
-});
-
 app.post('/api/user/add-reading', authenticateJWT, async (req, res) => {
   try {
     const user = await User.findById(req.user.id);
@@ -645,12 +640,6 @@ app.post('/api/user/add-reading', authenticateJWT, async (req, res) => {
     res.status(500).json({ error: 'Internal server error' });
   }
 });
-
-// 2. Diğer route'lar ve middleware'ler
-// ... mevcut kod ...
-
-// 3. API routes (routes/api.js)
-app.use('/api', require('./routes/api'));
 
 // 4. 404 handler EN SONDA
 app.use('*', (req, res) => {
