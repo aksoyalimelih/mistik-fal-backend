@@ -590,6 +590,45 @@ app.post('/api/user/:email/add-credits', async (req, res) => {
   }
 });
 
+// Aztro API endpoint yerine Gemini ile burç yorumu
+app.post('/api/horoscope', authenticateJWT, async (req, res) => {
+  const { sign, day } = req.body;
+  // sign: 'koc', 'boga', ...
+  try {
+    const prompt = `Bugün için ${sign.charAt(0).toUpperCase() + sign.slice(1)} burcuna özel kısa, özgün ve pozitif bir günlük burç yorumu hazırla. (Tarih: ${new Date().toLocaleDateString()} - ${Math.random()})`;
+    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    const text = await response.text();
+    // Geçmiş fallara kaydet
+    const user = await User.findById(req.user.id);
+    if (user) {
+      const newReading = {
+        id: Date.now(),
+        title: 'Günlük Burç Yorumu',
+        reading: text,
+        type: 'daily-horoscope',
+        date: new Date(),
+      };
+      user.pastReadings.unshift(newReading);
+      await user.save();
+      
+      // Real-time notification gönder
+      const notification = {
+        id: newReading.id,
+        type: 'horoscope_result',
+        title: 'Günlük Burç Yorumu',
+        message: `${sign.charAt(0).toUpperCase() + sign.slice(1)} burcu günlük yorumunuz hazır!`,
+        timestamp: new Date().toISOString()
+      };
+      sendNotification(user._id, notification);
+    }
+    res.json({ horoscope: text });
+  } catch (error) {
+    res.status(500).json({ error: 'Gemini API hatası', details: error.message });
+  }
+});
+
 // Kullanıcı profilini güncelleme endpointi (JWT ile korumalı)
 app.put('/api/profile', authenticateJWT, async (req, res) => {
   try {
