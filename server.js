@@ -18,17 +18,17 @@ const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const cookieParser = require('cookie-parser');
 const mongoSanitize = require('express-mongo-sanitize');
 const morgan = require('morgan');
-const http = require('http');
-const socketIo = require('socket.io');
 
 const app = express();
-const server = http.createServer(app);
-const io = socketIo(server, {
-  cors: {
-    origin: 'https://couva.de',
-    credentials: true
-  }
-});
+
+// SADECE https://couva.de adresine izin verilecek şekilde CORS ayarı
+const corsOptions = {
+  origin: 'https://couva.de',
+  credentials: true,
+  allowedHeaders: ['Content-Type', 'Authorization']
+};
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 
 app.set('trust proxy', 1);
 const PORT = process.env.PORT || 3020;
@@ -84,14 +84,6 @@ function authenticateJWT(req, res, next) {
     res.status(401).json({ error: 'No token provided' });
   }
 }
-
-// SADECE https://couva.de adresine izin verilecek şekilde CORS ayarı
-const corsOptions = {
-  origin: 'https://couva.de',
-  credentials: true,
-  allowedHeaders: ['Content-Type', 'Authorization']
-};
-app.use(cors(corsOptions));
 
 // Middleware
 app.use(helmet());
@@ -823,10 +815,10 @@ if (process.env.NODE_ENV === 'production') {
   });
 }
 
-server.listen(PORT, () => {
+// Sunucuyu başlat
+app.listen(PORT, () => {
   console.log(`🚀 Fortune Backend running on port ${PORT}`);
   console.log(`📡 Health check: http://localhost:${PORT}/api/health`);
   console.log(`🔑 Gemini API Key configured: ${process.env.GEMINI_API_KEY ? 'Yes' : 'No'}`);
   console.log(`🖼️  Image support: Enabled (Gemini Vision)`);
-  console.log(`🔌 WebSocket server: Ready for real-time notifications`);
 });
