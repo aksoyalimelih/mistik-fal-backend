@@ -626,6 +626,26 @@ app.post('/api/horoscope', authenticateJWT, async (req, res) => {
   }
 });
 
+// 1. Özel route'lar (EN ÜSTE AL)
+app.post('/api/horoscope', authenticateJWT, async (req, res) => {
+  // ... mevcut kod ...
+});
+
+app.post('/api/user/add-reading', authenticateJWT, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    const { reading } = req.body;
+    if (!reading) return res.status(400).json({ error: 'Reading is required' });
+    if (!user.pastReadings) user.pastReadings = [];
+    user.pastReadings.unshift({ ...reading, id: Date.now() });
+    await user.save();
+    res.json({ message: 'Reading added', pastReadings: user.pastReadings });
+  } catch (error) {
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // 2. Diğer route'lar ve middleware'ler
 // ... mevcut kod ...
 
