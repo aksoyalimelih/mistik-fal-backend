@@ -35,54 +35,6 @@ const PORT = process.env.PORT || 3020;
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
-// Socket.io kullanıcı bağlantılarını saklamak için
-const connectedUsers = new Map(); // userId -> socketId
-
-// Socket.io bağlantı yönetimi
-io.on('connection', (socket) => {
-  console.log('Yeni socket bağlantısı:', socket.id);
-
-  // Kullanıcı authentication
-  socket.on('authenticate', async (token) => {
-    try {
-      const decoded = jwt.verify(token, JWT_SECRET);
-      const userId = decoded.id;
-      
-      // Kullanıcıyı bağlantı listesine ekle
-      connectedUsers.set(userId, socket.id);
-      socket.userId = userId;
-      
-      console.log(`Kullanıcı ${userId} socket ${socket.id} ile bağlandı`);
-      
-      socket.emit('authenticated', { success: true });
-    } catch (error) {
-      console.error('Socket authentication hatası:', error);
-      socket.emit('authenticated', { success: false, error: 'Invalid token' });
-    }
-  });
-
-  // Bağlantı koptuğunda
-  socket.on('disconnect', () => {
-    if (socket.userId) {
-      connectedUsers.delete(socket.userId);
-      console.log(`Kullanıcı ${socket.userId} bağlantısı koptu`);
-    }
-    console.log('Socket bağlantısı koptu:', socket.id);
-  });
-});
-
-// Notification gönderme fonksiyonu
-const sendNotification = (userId, notification) => {
-  const socketId = connectedUsers.get(userId);
-  if (socketId) {
-    io.to(socketId).emit('newNotification', notification);
-    console.log(`Notification gönderildi: ${userId} -> ${socketId}`);
-    return true;
-  }
-  console.log(`Kullanıcı ${userId} çevrimiçi değil, notification gönderilemedi`);
-  return false;
-};
-
 // MongoDB bağlantısı ve User modeli en başa taşındı
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/mistikfal';
 const userSchema = new mongoose.Schema({
@@ -445,16 +397,6 @@ app.post('/api/fortune', checkApiKey, async (req, res) => {
       };
       user.pastReadings.unshift(newReading);
       
-      // Real-time notification gönder
-      const notification = {
-        id: newReading.id,
-        type: 'fortune_result',
-        title: `${type.charAt(0).toUpperCase() + type.slice(1)} Falı Sonucu`,
-        message: `${type.charAt(0).toUpperCase() + type.slice(1)} falınız hazır!`,
-        timestamp: new Date().toISOString()
-      };
-      sendNotification(user._id, notification);
-      
       res.json({
         fortune: text,
         type,
@@ -531,16 +473,6 @@ app.post('/api/fortune', checkApiKey, async (req, res) => {
       };
       user.pastReadings.unshift(newReading);
       
-      // Real-time notification gönder
-      const notification = {
-        id: newReading.id,
-        type: 'fortune_result',
-        title: `${type.charAt(0).toUpperCase() + type.slice(1)} Falı Sonucu`,
-        message: `${type.charAt(0).toUpperCase() + type.slice(1)} falınız hazır!`,
-        timestamp: new Date().toISOString()
-      };
-      sendNotification(user._id, notification);
-      
       res.json({
         fortune: text,
         type,
@@ -612,17 +544,8 @@ app.post('/api/horoscope', authenticateJWT, async (req, res) => {
       user.pastReadings.unshift(newReading);
       await user.save();
       
-      // Real-time notification gönder
-      const notification = {
-        id: newReading.id,
-        type: 'horoscope_result',
-        title: 'Günlük Burç Yorumu',
-        message: `${sign.charAt(0).toUpperCase() + sign.slice(1)} burcu günlük yorumunuz hazır!`,
-        timestamp: new Date().toISOString()
-      };
-      sendNotification(user._id, notification);
+      res.json({ horoscope: text });
     }
-    res.json({ horoscope: text });
   } catch (error) {
     res.status(500).json({ error: 'Gemini API hatası', details: error.message });
   }
